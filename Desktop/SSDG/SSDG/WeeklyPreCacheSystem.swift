@@ -480,16 +480,28 @@ class WeeklyPreCacheSystem: ObservableObject {
         )
     }
     
-    /// 生成每日计划
+    /// 生成每日计划（严格时间边界控制）
     private func generateDailyPlan(for user: VirtualUser, date: Date) async -> DailyDataPlan {
-        // 1. 生成睡眠数据
-        let sleepData = PersonalizedDataGenerator.generatePersonalizedSleepData(
-            for: user,
-            date: date,
-            mode: .simple
-        )
+        let calendar = Calendar.current
+        let now = Date()
+        let todayStart = calendar.startOfDay(for: now)
         
-        // 2. 生成步数分布计划
+        // 1. 生成睡眠数据（只能生成昨天及之前的数据）
+        let sleepData: SleepData?
+        if date < todayStart {
+            // 历史数据：正常生成睡眠数据
+            sleepData = PersonalizedDataGenerator.generatePersonalizedSleepData(
+                for: user,
+                date: date,
+                mode: .simple
+            )
+        } else {
+            // 今天或未来：不生成睡眠数据，只预留步数计划
+            sleepData = nil
+            print("⏰ 跳过未来睡眠数据生成: \(date.formatted(date: .abbreviated, time: .omitted))")
+        }
+        
+        // 2. 生成步数分布计划（可以为未来日期生成计划）
         let stepDistribution = generateStepDistributionPlan(
             for: user,
             date: date,
@@ -510,12 +522,19 @@ class WeeklyPreCacheSystem: ObservableObject {
         )
     }
     
-    /// 生成步数分布计划
-    private func generateStepDistributionPlan(for user: VirtualUser, date: Date, sleepData: SleepData) -> StepDistributionPlan {
+    /// 生成步数分布计划（支持无睡眠数据的情况）
+    private func generateStepDistributionPlan(for user: VirtualUser, date: Date, sleepData: SleepData?) -> StepDistributionPlan {
         let totalSteps = PersonalizedDataGenerator.calculateDailySteps(for: user, date: date)
         
         // 计算清醒时段
-        let awakePeriods = calculateAwakePeriods(from: sleepData)
+        let awakePeriods: [(start: Date, end: Date)]
+        if let sleepData = sleepData {
+            // 有睡眠数据：根据实际睡眠时间计算清醒时段
+            awakePeriods = calculateAwakePeriods(from: sleepData)
+        } else {
+            // 无睡眠数据：使用默认的全日活跃时段（为未来日期准备）
+            awakePeriods = generateDefaultAwakePeriods(for: date)
+        }
         
         // 分配步数到清醒时段
         let distributionBatches = distributeStepsIntoAwakePeriods(
@@ -525,16 +544,56 @@ class WeeklyPreCacheSystem: ObservableObject {
         )
         
         // 计算睡眠期间的减少步数
-        let sleepTimeReduction = calculateSleepTimeReduction(
-            from: sleepData,
-            date: date
-        )
+        let sleepTimeReduction: SleepTimeStepReduction
+        if let sleepData = sleepData {
+            sleepTimeReduction = calculateSleepTimeReduction(
+                from: sleepData,
+                date: date
+            )
+        } else {
+            // 无睡眠数据：创建空的睡眠减少计划
+            sleepTimeReduction = createEmptySleepTimeReduction(for: date)
+        }
         
         return StepDistributionPlan(
             totalSteps: totalSteps,
             distributionBatches: distributionBatches,
             sleepTimeReduction: sleepTimeReduction
         )
+    }
+    
+    /// 创建空的睡眠时间减少计划（用于无睡眠数据的情况）
+    private func createEmptySleepTimeReduction(for date: Date) -> SleepTimeStepReduction {
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: date)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)!
+        
+        return SleepTimeStepReduction(
+            sleepStartTime: dayEnd, // 使用第二天开始作为无效时间
+            sleepEndTime: dayEnd,   // 使用第二天开始作为无效时间
+            reducedStepBatches: [], // 空的减少批次
+            normalStepBatches: []   // 空的正常批次
+        )
+    }
+    
+    /// 生成默认清醒时段（用于无睡眠数据的情况）
+    private func generateDefaultAwakePeriods(for date: Date) -> [(start: Date, end: Date)] {
+        let calendar = Calendar.current
+        
+        // 默认假设：22:30睡觉，7:30起床
+        var bedtimeComponents = calendar.dateComponents([.year, .month, .day], from: date)
+        bedtimeComponents.hour = 22
+        bedtimeComponents.minute = 30
+        let defaultBedtime = calendar.date(from: bedtimeComponents)!
+        
+        var waketimeComponents = calendar.dateComponents([.year, .month, .day], from: date)
+        waketimeComponents.hour = 7
+        waketimeComponents.minute = 30
+        let defaultWaketime = calendar.date(from: waketimeComponents)!
+        
+        return [
+            (start: defaultWaketime, end: defaultBedtime)
+        ]
     }
     
     /// 计算清醒时段
@@ -674,10 +733,17 @@ class WeeklyPreCacheSystem: ObservableObject {
         )
     }
     
-    /// 计算导入时间表
-    private func calculateImportSchedule(sleepData: SleepData, stepDistribution: StepDistributionPlan) -> ImportSchedule {
-        // 睡眠数据在起床时间导入
-        let sleepImportTime = sleepData.wakeTime
+    /// 计算导入时间表（支持无睡眠数据的情况）
+    private func calculateImportSchedule(sleepData: SleepData?, stepDistribution: StepDistributionPlan) -> ImportSchedule {
+        // 睡眠数据导入时间
+        let sleepImportTime: Date?
+        if let sleepData = sleepData {
+            // 有睡眠数据：在起床时间导入
+            sleepImportTime = sleepData.wakeTime
+        } else {
+            // 无睡眠数据：不设置导入时间
+            sleepImportTime = nil
+        }
         
         // 步数批次时间
         let stepBatchTimes = stepDistribution.distributionBatches.map { $0.scheduledTime }

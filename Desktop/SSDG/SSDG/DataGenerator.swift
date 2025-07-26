@@ -36,8 +36,20 @@ class DataGenerator {
     
     // MARK: - 生成历史数据
     static func generateHistoricalData(for user: VirtualUser, days: Int = 30, mode: DataMode = .simple) -> (sleepData: [SleepData], stepsData: [StepsData]) {
-        let endDate = Date()
-        let startDate = Calendar.current.date(byAdding: .day, value: -days, to: endDate)!
+        let calendar = Calendar.current
+        let now = Date()
+        
+        // 🔥 关键修复：睡眠数据只能生成到昨天，步数数据最多到今天当前时间
+        let todayStart = calendar.startOfDay(for: now)
+        let yesterdayStart = calendar.date(byAdding: .day, value: -1, to: todayStart)!
+        
+        // 睡眠数据的结束日期：昨天（因为今天的睡眠还没发生）
+        let sleepEndDate = yesterdayStart
+        
+        // 步数数据的结束日期：今天开始（但生成时会检查当前时间）
+        let stepsEndDate = todayStart
+        
+        let startDate = calendar.date(byAdding: .day, value: -days, to: sleepEndDate)!
         
         var sleepData: [SleepData] = []
         var stepsData: [StepsData] = []
@@ -50,8 +62,8 @@ class DataGenerator {
         var currentDate = startDate
         var recentSleepHours: [Double] = [] // 用于连续性检查
         
-        while currentDate <= endDate {
-            // 生成睡眠数据
+        while currentDate < sleepEndDate {
+            // 生成睡眠数据（历史数据）
             let sleepHours = generateSleepHours(
                 baseline: user.sleepBaseline,
                 date: currentDate,
@@ -73,7 +85,7 @@ class DataGenerator {
                 recentSleepHours.removeFirst()
             }
             
-            // 生成步数数据（考虑睡眠时间）
+            // 生成步数数据（历史数据）
             let steps = generateStepsData(
                 date: currentDate,
                 baseline: user.stepsBaseline,
@@ -83,19 +95,58 @@ class DataGenerator {
             )
             stepsData.append(steps)
             
-            currentDate = Calendar.current.date(byAdding: .day, value: 1, to: currentDate)!
+            currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
+        }
+        
+        // 🔥 特殊处理：生成今天的步数数据（不包含睡眠数据）
+        if currentDate == stepsEndDate && stepsEndDate < calendar.date(byAdding: .day, value: 1, to: todayStart)! {
+            let todaySteps = generateTodayStepsData(
+                date: todayStart,
+                baseline: user.stepsBaseline,
+                currentTime: now,
+                recentStepsData: Array(stepsData.suffix(7)), // 最近7天用于趋势分析
+                mode: mode,
+                generator: &generator
+            )
+            stepsData.append(todaySteps)
         }
         
         return (sleepData, stepsData)
     }
     
-    // MARK: - 生成每日数据（增强版：双向关联）
-    static func generateDailyData(for user: VirtualUser, recentSleepData: [SleepData], recentStepsData: [StepsData], mode: DataMode = .simple) -> (sleepData: SleepData, stepsData: StepsData) {
-        return generateDailyData(for: user, date: Date(), recentSleepData: recentSleepData, recentStepsData: recentStepsData, mode: mode)
+    // MARK: - 生成每日数据（增强版：双向关联 + 严格时间控制）
+    static func generateDailyData(for user: VirtualUser, recentSleepData: [SleepData], recentStepsData: [StepsData], mode: DataMode = .simple) -> (sleepData: SleepData?, stepsData: StepsData) {
+        let calendar = Calendar.current
+        let now = Date()
+        let yesterdayStart = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now))!
+        
+        // 🔥 关键修复：只能生成昨天的完整数据，今天只生成步数数据
+        return generateDailyData(for: user, date: yesterdayStart, recentSleepData: recentSleepData, recentStepsData: recentStepsData, mode: mode)
     }
     
-    // 重载方法：支持指定日期
-    static func generateDailyData(for user: VirtualUser, date: Date, recentSleepData: [SleepData], recentStepsData: [StepsData], mode: DataMode = .simple) -> (sleepData: SleepData, stepsData: StepsData) {
+    // 重载方法：支持指定日期（带时间边界检查）
+    static func generateDailyData(for user: VirtualUser, date: Date, recentSleepData: [SleepData], recentStepsData: [StepsData], mode: DataMode = .simple) -> (sleepData: SleepData?, stepsData: StepsData) {
+        let calendar = Calendar.current
+        let now = Date()
+        let todayStart = calendar.startOfDay(for: now)
+        
+        // 🔥 时间边界检查：不能生成未来的数据
+        guard date < todayStart else {
+            // 如果是今天，只生成步数数据
+            let seed = generateSeed(from: user.id + date.timeIntervalSince1970.description)
+            var generator = SeededRandomGenerator(seed: UInt64(seed))
+            
+            let todaySteps = generateTodayStepsData(
+                date: date,
+                baseline: user.stepsBaseline,
+                currentTime: now,
+                recentStepsData: Array(recentStepsData.suffix(7)),
+                mode: mode,
+                generator: &generator
+            )
+            
+            return (sleepData: nil, stepsData: todaySteps)
+        }
         let seed = generateSeed(from: user.id + date.timeIntervalSince1970.description)
         var generator = SeededRandomGenerator(seed: UInt64(seed))
         
@@ -137,7 +188,7 @@ class DataGenerator {
             generator: &generator
         )
         
-        return (sleepData, stepsData)
+        return (sleepData: sleepData, stepsData: stepsData)
     }
     
     // MARK: - 计算运动量对睡眠需求的影响
@@ -844,9 +895,14 @@ class DataGenerator {
         for hour in 0..<24 {
             var hourComponents = calendar.dateComponents([.year, .month, .day], from: date)
             hourComponents.hour = hour
-            hourComponents.minute = 0
+            // 添加随机分秒，使时间更真实
+            hourComponents.minute = generator.nextInt(in: 0...59)
+            hourComponents.second = generator.nextInt(in: 0...59)
             let hourStart = calendar.date(from: hourComponents)!
-            let hourEnd = hourStart.addingTimeInterval(3600)
+            
+            // 结束时间也添加随机分秒偏移，但保证在下个小时内
+            let randomOffset = generator.nextInt(in: 30...90) * 60 // 30-90分钟的随机偏移
+            let hourEnd = hourStart.addingTimeInterval(TimeInterval(randomOffset))
             
             // 计算这一小时的睡眠比例
             let sleepRatio = calculateSleepRatioForHour(
@@ -871,26 +927,70 @@ class DataGenerator {
             ))
         }
         
-        // 计算每小时的初始步数分配（严格限制睡眠期间步数）
+        // 首先生成起夜行为（整晚0-2次起夜）
+        let nightBathroomVisits = generateNightBathroomVisits(
+            sleepRanges: sleepTimeRanges,
+            generator: &generator
+        )
+        
+        // 计算每小时的初始步数分配（超严格限制睡眠期间步数）
         var hourlyStepsArray: [Int] = []
         
         for data in hourlyData {
             var steps = 0
             
-            if data.sleepRatio >= 0.90 {
-                // 深度睡眠时间（90%以上睡眠）：完全无步数
+            if data.sleepRatio >= 0.95 {
+                // 深度睡眠时间（95%以上睡眠）：完全无步数
                 steps = 0
-            } else if data.sleepRatio >= 0.70 {
-                // 主要睡眠时间（70-90%睡眠）：95%为0步，5%为个位数步数
-                steps = generator.nextDouble(in: 0...1) < 0.05 ? generator.nextInt(in: 1...9) : 0
-            } else if data.sleepRatio >= 0.30 {
-                // 轻度睡眠/入睡时间（30-70%睡眠）：很少步数
-                let maxSteps = max(1, Int(Double(totalSteps) * 0.001)) // 最多0.1%的总步数
-                steps = generator.nextDouble(in: 0...1) < 0.3 ? generator.nextInt(in: 0...maxSteps) : 0
+                
+                // 检查是否有起夜行为
+                for visit in nightBathroomVisits {
+                    if visit.startTime >= data.startTime && visit.startTime < data.endTime {
+                        steps = visit.steps
+                        break
+                    }
+                }
+                
+            } else if data.sleepRatio >= 0.80 {
+                // 主要睡眠时间（80-95%睡眠）：99.5%为0步，0.5%为1-2步（翻身）
+                if generator.nextDouble(in: 0...1) < 0.005 {
+                    steps = generator.nextInt(in: 1...2) // 翻身微动
+                } else {
+                    steps = 0
+                }
+                
+                // 检查是否有起夜行为
+                for visit in nightBathroomVisits {
+                    if visit.startTime >= data.startTime && visit.startTime < data.endTime {
+                        steps = visit.steps
+                        break
+                    }
+                }
+                
+            } else if data.sleepRatio >= 0.50 {
+                // 轻度睡眠时间（50-80%睡眠）：99%为0步，1%为1-3步
+                if generator.nextDouble(in: 0...1) < 0.01 {
+                    steps = generator.nextInt(in: 1...3) // 轻微翻身
+                } else {
+                    steps = 0
+                }
+                
+            } else if data.sleepRatio >= 0.20 {
+                // 入睡/醒来时间（20-50%睡眠）：90%为0步，10%为1-8步（床上活动）
+                if generator.nextDouble(in: 0...1) < 0.10 {
+                    steps = generator.nextInt(in: 1...8) // 床上翻身、调整姿势
+                } else {
+                    steps = 0
+                }
+                
             } else if data.sleepRatio > 0.05 {
-                // 轻微睡眠/准备睡觉时间（5-30%睡眠）：少量步数
-                let maxSteps = max(2, Int(Double(totalSteps) * 0.005)) // 最多0.5%的总步数
-                steps = generator.nextDouble(in: 0...1) < 0.6 ? generator.nextInt(in: 0...maxSteps) : 0
+                // 准备睡觉/刚醒来时间（5-20%睡眠）：允许少量活动
+                if generator.nextDouble(in: 0...1) < 0.3 {
+                    steps = generator.nextInt(in: 1...15) // 准备睡觉的活动
+                } else {
+                    steps = 0
+                }
+                
             } else {
                 // 清醒时间（睡眠比例<5%）：根据权重分配步数
                 if totalAwakeWeight > 0 {
@@ -966,6 +1066,204 @@ class DataGenerator {
         }
         
         return min(1.0, sleepDuration / hourDuration)
+    }
+    
+    // MARK: - 起夜行为数据结构
+    private struct NightBathroomVisit {
+        let startTime: Date
+        let steps: Int
+    }
+    
+    // MARK: - 生成起夜行为
+    private static func generateNightBathroomVisits(
+        sleepRanges: [(start: Date, end: Date)],
+        generator: inout SeededRandomGenerator
+    ) -> [NightBathroomVisit] {
+        var visits: [NightBathroomVisit] = []
+        
+        guard !sleepRanges.isEmpty else { return visits }
+        
+        // 80%的夜晚有0次起夜，15%有1次，5%有2次
+        let visitCount: Int
+        let randomValue = generator.nextDouble(in: 0...1)
+        if randomValue < 0.80 {
+            visitCount = 0
+        } else if randomValue < 0.95 {
+            visitCount = 1
+        } else {
+            visitCount = 2
+        }
+        
+        guard visitCount > 0 else { return visits }
+        
+        // 计算总睡眠时间段
+        let totalSleepDuration = sleepRanges.reduce(0.0) { total, range in
+            total + range.end.timeIntervalSince(range.start)
+        }
+        
+        // 如果睡眠时间少于4小时，减少起夜概率
+        if totalSleepDuration < 4 * 3600 && generator.nextDouble(in: 0...1) < 0.7 {
+            return visits // 短睡眠时间，70%概率不起夜
+        }
+        
+        for _ in 0..<visitCount {
+            // 选择一个睡眠时间段
+            let rangeIndex = generator.nextInt(in: 0...(sleepRanges.count - 1))
+            let selectedRange = sleepRanges[rangeIndex]
+            
+            // 在该时间段的中间80%时间内随机选择起夜时间
+            let rangeDuration = selectedRange.end.timeIntervalSince(selectedRange.start)
+            let startOffset = rangeDuration * 0.1 // 跳过前10%
+            let endOffset = rangeDuration * 0.9   // 跳过后10%
+            
+            let randomOffset = generator.nextDouble(in: startOffset...endOffset)
+            let visitTime = selectedRange.start.addingTimeInterval(randomOffset)
+            
+            // 生成起夜步数：根据不同情况
+            let steps: Int
+            let stepType = generator.nextDouble(in: 0...1)
+            
+            if stepType < 0.70 { // 70%：正常上厕所
+                steps = generator.nextInt(in: 20...60) // 卧室到厕所往返
+            } else if stepType < 0.85 { // 15%：喝水或轻微活动
+                steps = generator.nextInt(in: 8...25) 
+            } else if stepType < 0.95 { // 10%：检查什么或更长的厕所时间
+                steps = generator.nextInt(in: 60...120)
+            } else { // 5%：失眠起床活动
+                steps = generator.nextInt(in: 100...200)
+            }
+            
+            visits.append(NightBathroomVisit(
+                startTime: visitTime,
+                steps: steps
+            ))
+        }
+        
+        // 按时间排序
+        visits.sort { $0.startTime < $1.startTime }
+        
+        // 确保起夜时间间隔至少1小时
+        var filteredVisits: [NightBathroomVisit] = []
+        for visit in visits {
+            let tooClose = filteredVisits.contains { existingVisit in
+                abs(visit.startTime.timeIntervalSince(existingVisit.startTime)) < 3600 // 1小时
+            }
+            
+            if !tooClose {
+                filteredVisits.append(visit)
+            }
+        }
+        
+        return filteredVisits
+    }
+    
+    // MARK: - 生成今天的步数数据（严格时间边界控制）
+    private static func generateTodayStepsData(
+        date: Date,
+        baseline: Int,
+        currentTime: Date,
+        recentStepsData: [StepsData],
+        mode: DataMode,
+        generator: inout SeededRandomGenerator
+    ) -> StepsData {
+        let calendar = Calendar.current
+        let currentHour = calendar.component(.hour, from: currentTime)
+        let currentMinute = calendar.component(.minute, from: currentTime)
+        
+        // 计算到当前时间为止应该产生的总步数（按比例）
+        let timeProgress = (Double(currentHour) + Double(currentMinute) / 60.0) / 24.0
+        let expectedStepsToNow = Int(Double(baseline) * timeProgress * generator.nextDouble(in: 0.8...1.2))
+        
+        // 生成今天的活跃度权重分布（只到当前时间）
+        let todayActivityWeights: [Int: Double] = [
+            0: 0.01, 1: 0.01, 2: 0.01, 3: 0.01, 4: 0.01, 5: 0.02,
+            6: 0.04, 7: 0.08, 8: 0.12, 9: 0.10, 10: 0.08, 11: 0.09,
+            12: 0.11, 13: 0.06, 14: 0.09, 15: 0.08, 16: 0.09, 17: 0.11,
+            18: 0.12, 19: 0.08, 20: 0.06, 21: 0.04, 22: 0.03, 23: 0.02
+        ]
+        
+        var hourlySteps: [HourlySteps] = []
+        var totalAllocatedSteps = 0
+        
+        // 生成已过去时间的步数
+        for hour in 0...currentHour {
+            var hourComponents = calendar.dateComponents([.year, .month, .day], from: date)
+            hourComponents.hour = hour
+            hourComponents.minute = generator.nextInt(in: 0...59)
+            hourComponents.second = generator.nextInt(in: 0...59)
+            let hourStart = calendar.date(from: hourComponents)!
+            
+            var hourEnd: Date
+            var steps: Int
+            
+            if hour < currentHour {
+                // 已完全过去的小时：生成完整的步数
+                let randomOffset = generator.nextInt(in: 30...90) * 60
+                hourEnd = hourStart.addingTimeInterval(TimeInterval(randomOffset))
+                
+                let baseWeight = todayActivityWeights[hour] ?? 0.01
+                let stepRatio = baseWeight / todayActivityWeights.values.reduce(0, +)
+                let allocatedSteps = Int(Double(expectedStepsToNow) * stepRatio)
+                
+                let variation = generator.nextDouble(in: -0.30...0.30)
+                steps = max(0, Int(Double(allocatedSteps) * (1 + variation)))
+            } else {
+                // 当前小时：只生成到当前分钟的步数
+                let progressInHour = Double(currentMinute) / 60.0
+                hourEnd = currentTime
+                
+                let baseWeight = todayActivityWeights[hour] ?? 0.01
+                let stepRatio = baseWeight / todayActivityWeights.values.reduce(0, +)
+                let fullHourSteps = Int(Double(expectedStepsToNow) * stepRatio)
+                
+                // 按当前小时的进度分配步数
+                steps = Int(Double(fullHourSteps) * progressInHour)
+                
+                // 添加一些随机性，但不能超过合理范围
+                let variation = generator.nextDouble(in: -0.20...0.20)
+                steps = max(0, Int(Double(steps) * (1 + variation)))
+            }
+            
+            totalAllocatedSteps += steps
+            
+            hourlySteps.append(HourlySteps(
+                hour: hour,
+                steps: steps,
+                startTime: hourStart,
+                endTime: hourEnd
+            ))
+        }
+        
+        // 🔥 关键：不生成未来时间的步数数据
+        // （不添加currentHour+1到23的数据）
+        
+        // 调整总步数，确保与预期接近
+        let difference = expectedStepsToNow - totalAllocatedSteps
+        if abs(difference) > 0 && !hourlySteps.isEmpty {
+            // 将差值分配给最近的几个小时
+            let activeHourCount = min(3, hourlySteps.count)
+            let adjustmentPerHour = difference / activeHourCount
+            let remainder = difference % activeHourCount
+            
+            // 重新创建需要调整的HourlySteps对象
+            for i in (hourlySteps.count - activeHourCount)..<hourlySteps.count {
+                let adjustment = adjustmentPerHour + (i < hourlySteps.count - remainder ? 0 : (difference > 0 ? 1 : -1))
+                let adjustedSteps = max(0, hourlySteps[i].steps + adjustment)
+                
+                // 创建新的HourlySteps对象
+                hourlySteps[i] = HourlySteps(
+                    hour: hourlySteps[i].hour,
+                    steps: adjustedSteps,
+                    startTime: hourlySteps[i].startTime,
+                    endTime: hourlySteps[i].endTime
+                )
+            }
+        }
+        
+        return StepsData(
+            date: date,
+            hourlySteps: hourlySteps
+        )
     }
     
     // MARK: - 生成种子

@@ -310,22 +310,26 @@ struct TodaySyncView: View {
             )
             
             // 4. 自动同步到 HealthKit
+            let sleepDataArray = sleepData != nil ? [sleepData!] : []
             let syncSuccess = await healthKitManager.syncUserData(
                 user: user,
-                sleepData: [sleepData],
+                sleepData: sleepDataArray,
                 stepsData: [stepsData]
             )
             
             await MainActor.run {
                 isGenerating = false
                 
-                // 保存生成的数据到状态管理器
-                syncStateManager.updateSyncData(sleepData: sleepData, stepsData: stepsData)
+                // 保存生成的数据到状态管理器（只有当睡眠数据存在时才保存）
+                if let sleepData = sleepData {
+                    syncStateManager.updateSyncData(sleepData: sleepData, stepsData: stepsData)
+                }
                 
                 if syncSuccess {
                     syncStateManager.updateSyncStatus(.synced)
                     let historyInfo = historicalSleepData.isEmpty ? "" : "\n\n📊 基于 \(historicalSleepData.count) 天历史数据生成"
-                    alertMessage = "今日数据生成并同步成功！\n睡眠: \(String(format: "%.1f", sleepData.totalSleepHours))小时\n步数: \(stepsData.totalSteps)步\(historyInfo)\n\n✅ 已自动清理重复数据\n✅ 已同步到 Apple Health"
+                    let sleepInfo = sleepData != nil ? "睡眠: \(String(format: "%.1f", sleepData!.totalSleepHours))小时\n" : "睡眠: 无数据（今日数据）\n"
+                    alertMessage = "今日数据生成并同步成功！\n\(sleepInfo)步数: \(stepsData.totalSteps)步\(historyInfo)\n\n✅ 已自动清理重复数据\n✅ 已同步到 Apple Health"
                 } else {
                     syncStateManager.updateSyncStatus(.failed)
                     alertMessage = "数据生成成功但同步失败\n请检查 HealthKit 权限设置"
@@ -445,7 +449,7 @@ struct TodaySyncView: View {
         date: Date,
         historicalSleepData: [SleepData],
         historicalStepsData: [StepsData]
-    ) async -> (sleepData: SleepData, stepsData: StepsData) {
+    ) async -> (sleepData: SleepData?, stepsData: StepsData) {
         let dataMode = await MainActor.run { SyncStateManager.shared.dataMode }
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {

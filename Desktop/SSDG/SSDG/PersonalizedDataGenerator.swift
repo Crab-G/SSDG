@@ -19,8 +19,17 @@ class PersonalizedDataGenerator {
     
     // MARK: - 睡眠数据生成
     
-    // 生成个性化睡眠数据（在用户起床时间点触发）
+    // 生成个性化睡眠数据（严格时间边界控制）
     static func generatePersonalizedSleepData(for user: VirtualUser, date: Date, mode: DataMode = .simple) -> SleepData {
+        let calendar = Calendar.current
+        let now = Date()
+        let todayStart = calendar.startOfDay(for: now)
+        
+        // 🔥 严格时间边界：只能生成昨天及之前的睡眠数据
+        guard date < todayStart else {
+            fatalError("❌ PersonalizedDataGenerator: 不能生成今天或未来的睡眠数据！日期: \(date), 今天: \(todayStart)")
+        }
+        
         let profile = user.personalizedProfile
         let seed = generateSeed(from: user.id + date.timeIntervalSince1970.description)
         var generator = SeededRandomGenerator(seed: UInt64(abs(seed)))

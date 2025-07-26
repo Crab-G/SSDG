@@ -465,19 +465,36 @@ class HealthKitManager: ObservableObject {
         return (startDate, endDate)
     }
     
-    // MARK: - 改进的创建睡眠样本（增强数据标识）
+    // MARK: - 生成iPhone原生数据元数据
+    private func createiPhoneMetadata(extraData: [String: Any] = [:]) -> [String: Any] {
+        var metadata: [String: Any] = [
+            HKMetadataKeyWasUserEntered: false,                    // 标记为自动记录
+            HKMetadataKeyDeviceName: "iPhone",                     // 设备名称（关键）
+            HKMetadataKeyDeviceManufacturerName: "Apple Inc.",     // 制造商
+            HKMetadataKeyDeviceSerialNumber: UIDevice.current.identifierForVendor?.uuidString ?? "Unknown", // 设备序列号
+            HKMetadataKeyExternalUUID: UUID().uuidString,         // 外部UUID
+            // 自定义元数据（使用字符串键）
+            "DeviceModel": UIDevice.current.model,                // 设备型号
+            "SourceVersion": "1.0",                               // 数据源版本（移除私有前缀）
+            // 隐藏的应用标识（便于内部识别和管理）
+            "SSDGGenerated": true,
+            "DataVersion": "3.0"
+        ]
+        
+        // 合并额外的元数据
+        for (key, value) in extraData {
+            metadata[key] = value
+        }
+        
+        return metadata
+    }
+    
+    // MARK: - 改进的创建睡眠样本（完全模拟iPhone数据）
     private func createSleepSamples(from sleepData: SleepData, mode: DataMode = .simple) -> [HKCategorySample] {
         var samples: [HKCategorySample] = []
         
-        // 创建增强的metadata，便于识别和替换
-        let metadata: [String: Any] = [
-            HKMetadataKeyWasUserEntered: false,                    // 标记为自动记录
-            HKMetadataKeyDeviceName: "iPhone",                     // 设备名称
-            "SSDGAppGenerated": true,                              // 应用标识
-            "SSDGDataVersion": "2.0",                             // 数据版本
-            "SSDGGenerationDate": Date().timeIntervalSince1970,   // 生成时间
-            "SSDGUserID": sleepData.date.timeIntervalSince1970    // 用户关联
-        ]
+        // 使用统一的iPhone元数据生成
+        let metadata = createiPhoneMetadata()
         
         switch mode {
         case .simple:
@@ -538,15 +555,8 @@ class HealthKitManager: ObservableObject {
     private func createStepsSamples(from stepsData: StepsData) -> [HKQuantitySample] {
         var samples: [HKQuantitySample] = []
         
-        // 创建增强的metadata
-        let metadata: [String: Any] = [
-            HKMetadataKeyWasUserEntered: false,                    // 标记为自动记录
-            HKMetadataKeyDeviceName: "iPhone",                     // 设备名称
-            "SSDGAppGenerated": true,                              // 应用标识
-            "SSDGDataVersion": "2.0",                             // 数据版本
-            "SSDGGenerationDate": Date().timeIntervalSince1970,   // 生成时间
-            "SSDGUserID": stepsData.date.timeIntervalSince1970    // 用户关联
-        ]
+        // 使用统一的iPhone元数据生成
+        let metadata = createiPhoneMetadata()
         
         for hourlySteps in stepsData.hourlySteps {
             let stepsQuantity = HKQuantity(unit: HKUnit.count(), doubleValue: Double(hourlySteps.steps))
@@ -977,12 +987,10 @@ class HealthKitManager: ObservableObject {
             quantity: quantity,
             start: startDate,
             end: endDate,
-            metadata: [
-                HKMetadataKeyWasUserEntered: false,
-                "PersonalizedDataSource": "SSDG_Personalized",
+            metadata: createiPhoneMetadata(extraData: [
                 "ActivityType": increment.activityType.rawValue,
                 "IncrementType": "MicroIncrement"
-            ]
+            ])
         )
         
         return await withCheckedContinuation { continuation in
@@ -1064,11 +1072,9 @@ class HealthKitManager: ObservableObject {
             value: HKCategoryValueSleepAnalysis.inBed.rawValue,
             start: sleepData.bedTime,
             end: sleepData.wakeTime,
-            metadata: [
-                HKMetadataKeyWasUserEntered: false,
-                "PersonalizedDataSource": "SSDG_Personalized",
+            metadata: createiPhoneMetadata(extraData: [
                 "SleepType": "InBed"
-            ]
+            ])
         )
         samples.append(inBedSample)
         
@@ -1077,11 +1083,9 @@ class HealthKitManager: ObservableObject {
             value: HKCategoryValueSleepAnalysis.asleep.rawValue,
             start: sleepData.bedTime,
             end: sleepData.wakeTime,
-            metadata: [
-                HKMetadataKeyWasUserEntered: false,
-                "PersonalizedDataSource": "SSDG_Personalized",
+            metadata: createiPhoneMetadata(extraData: [
                 "SleepType": "Asleep"
-            ]
+            ])
         )
         samples.append(asleepSample)
         
@@ -1104,11 +1108,9 @@ class HealthKitManager: ObservableObject {
                 value: stageValue,
                 start: stage.startTime,
                 end: stage.endTime,
-                metadata: [
-                    HKMetadataKeyWasUserEntered: false,
-                    "PersonalizedDataSource": "SSDG_Personalized",
+                metadata: createiPhoneMetadata(extraData: [
                     "SleepStage": stage.stage.rawValue
-                ]
+                ])
             )
             samples.append(stageSample)
         }
