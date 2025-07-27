@@ -895,9 +895,9 @@ class DataGenerator {
         for hour in 0..<24 {
             var hourComponents = calendar.dateComponents([.year, .month, .day], from: date)
             hourComponents.hour = hour
-            // 添加随机分秒，使时间更真实
-            hourComponents.minute = generator.nextInt(in: 0...59)
-            hourComponents.second = generator.nextInt(in: 0...59)
+            // 🔥 使用真实传感器时间模拟
+            hourComponents.minute = generateRealisticMinute(for: hour, generator: &generator)
+            hourComponents.second = generateRealisticSecond(generator: &generator)
             let hourStart = calendar.date(from: hourComponents)!
             
             // 结束时间也添加随机分秒偏移，但保证在下个小时内
@@ -1035,9 +1035,12 @@ class DataGenerator {
         // 创建最终的HourlySteps数组
         var hourlySteps: [HourlySteps] = []
         for (index, data) in hourlyData.enumerated() {
+            // 🔥 添加传感器噪声，使数据更真实
+            let noisySteps = addSensorNoise(to: hourlyStepsArray[index], generator: &generator)
+            
             hourlySteps.append(HourlySteps(
                 hour: data.hour,
-                steps: hourlyStepsArray[index],
+                steps: noisySteps,
                 startTime: data.startTime,
                 endTime: data.endTime
             ))
@@ -1189,8 +1192,9 @@ class DataGenerator {
         for hour in 0...currentHour {
             var hourComponents = calendar.dateComponents([.year, .month, .day], from: date)
             hourComponents.hour = hour
-            hourComponents.minute = generator.nextInt(in: 0...59)
-            hourComponents.second = generator.nextInt(in: 0...59)
+            // 🔥 使用真实传感器时间模拟
+            hourComponents.minute = generateRealisticMinute(for: hour, generator: &generator)
+            hourComponents.second = generateRealisticSecond(generator: &generator)
             let hourStart = calendar.date(from: hourComponents)!
             
             var hourEnd: Date
@@ -1224,11 +1228,13 @@ class DataGenerator {
                 steps = max(0, Int(Double(steps) * (1 + variation)))
             }
             
-            totalAllocatedSteps += steps
+            // 🔥 添加传感器噪声使数据更真实
+            let noisySteps = addSensorNoise(to: steps, generator: &generator)
+            totalAllocatedSteps += noisySteps
             
             hourlySteps.append(HourlySteps(
                 hour: hour,
-                steps: steps,
+                steps: noisySteps,
                 startTime: hourStart,
                 endTime: hourEnd
             ))
@@ -1269,5 +1275,54 @@ class DataGenerator {
     // MARK: - 生成种子
     private static func generateSeed(from string: String) -> Int {
         return abs(string.hashValue)
+    }
+    
+    // MARK: - 真实传感器时间模拟
+    private static func generateRealisticMinute(for hour: Int, generator: inout SeededRandomGenerator) -> Int {
+        // 模拟真实iPhone传感器的采集模式
+        // 不同时间段有不同的采集偏好
+        switch hour {
+        case 0...6:   // 深夜：更稀疏的采集
+            return generator.nextInt(in: 0...59)
+        case 7...9:   // 早晨：相对规律
+            return generator.nextInt(in: 10...50)
+        case 10...16: // 白天：活跃期，更频繁
+            return generator.nextInt(in: 5...55)
+        case 17...20: // 傍晚：较规律
+            return generator.nextInt(in: 15...45)
+        default:      // 晚上：逐渐减少
+            return generator.nextInt(in: 0...59)
+        }
+    }
+    
+    private static func generateRealisticSecond(generator: inout SeededRandomGenerator) -> Int {
+        // 真实传感器的秒级偏移通常不是完全随机的
+        // 有一定的聚集性（某些秒数更常见）
+        let commonSeconds = [0, 15, 30, 45] // 传感器常见采集点
+        
+        if generator.nextInt(in: 1...100) <= 40 { // 40%几率使用常见秒数
+            return commonSeconds.randomElement() ?? 0
+        } else {
+            return generator.nextInt(in: 0...59)
+        }
+    }
+    
+    private static func generateRealisticDuration(generator: inout SeededRandomGenerator) -> TimeInterval {
+        // 真实采集间隔不是固定1小时
+        // 根据传感器特性，有一定的变化
+        let baseInterval: TimeInterval = 3600 // 1小时
+        let variation = Double(generator.nextInt(in: -600...600)) // ±10分钟变化
+        
+        return max(1800, baseInterval + variation) // 至少30分钟间隔
+    }
+    
+    private static func addSensorNoise(to steps: Int, generator: inout SeededRandomGenerator) -> Int {
+        // 添加传感器噪声，模拟真实计步器的微小误差
+        guard steps > 0 else { return 0 }
+        
+        let noiseLevel = Double(generator.nextInt(in: -3...3)) / 100.0 // ±3%噪声
+        let noisySteps = Double(steps) * (1.0 + noiseLevel)
+        
+        return max(0, Int(noisySteps.rounded()))
     }
 } 

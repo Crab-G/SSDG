@@ -7,6 +7,20 @@
 
 import Foundation
 import HealthKit
+
+// MARK: - String Extension for Hex Generation
+extension String {
+    static func randomHexString(length: Int) -> String {
+        let hexChars = "0123456789ABCDEF"
+        var result = ""
+        for _ in 0..<length {
+            let randomIndex = Int.random(in: 0..<hexChars.count)
+            let char = hexChars[hexChars.index(hexChars.startIndex, offsetBy: randomIndex)]
+            result.append(char)
+        }
+        return result
+    }
+}
 import SwiftUI
 
 // MARK: - HealthKit管理器
@@ -467,16 +481,66 @@ class HealthKitManager: ObservableObject {
     
     // MARK: - 创建iPhone设备对象
     private func createiPhoneDevice() -> HKDevice {
+        let deviceModel = getRealisticiPhoneModel()
+        let systemVersion = getRealisticiOSVersion()
+        
         return HKDevice(
-            name: "iPhone",
+            name: deviceModel.displayName,                        // 真实iPhone型号名称
             manufacturer: "Apple Inc.",
-            model: UIDevice.current.model,
-            hardwareVersion: UIDevice.current.systemVersion,
-            firmwareVersion: UIDevice.current.systemVersion,
-            softwareVersion: UIDevice.current.systemVersion,
-            localIdentifier: UIDevice.current.identifierForVendor?.uuidString,
+            model: deviceModel.modelIdentifier,                   // 真实型号标识符
+            hardwareVersion: deviceModel.hardwareVersion,        // 硬件版本
+            firmwareVersion: systemVersion,                       // 系统版本
+            softwareVersion: systemVersion,                       // 软件版本
+            localIdentifier: generateRealisticDeviceID(),        // 真实风格设备ID
             udiDeviceIdentifier: nil
         )
+    }
+    
+    // MARK: - 获取真实iPhone型号信息
+    private func getRealisticiPhoneModel() -> (displayName: String, modelIdentifier: String, hardwareVersion: String) {
+        let currentYear = Calendar.current.component(.year, from: Date())
+        
+        // 根据当前年份选择合适的iPhone型号
+        let models = [
+            (displayName: "iPhone 15 Pro", modelIdentifier: "iPhone16,1", hardwareVersion: "iPhone16,1"),
+            (displayName: "iPhone 15", modelIdentifier: "iPhone15,4", hardwareVersion: "iPhone15,4"),
+            (displayName: "iPhone 14 Pro", modelIdentifier: "iPhone15,2", hardwareVersion: "iPhone15,2"),
+            (displayName: "iPhone 14", modelIdentifier: "iPhone14,7", hardwareVersion: "iPhone14,7"),
+            (displayName: "iPhone 13 Pro", modelIdentifier: "iPhone14,2", hardwareVersion: "iPhone14,2"),
+            (displayName: "iPhone 13", modelIdentifier: "iPhone14,5", hardwareVersion: "iPhone14,5")
+        ]
+        
+        // 根据年份和随机性选择型号
+        let modelIndex = (currentYear + Int.random(in: 0...2)) % models.count
+        return models[modelIndex]
+    }
+    
+    // MARK: - 获取真实iOS版本
+    private func getRealisticiOSVersion() -> String {
+        let currentVersion = UIDevice.current.systemVersion
+        
+        // 在当前版本基础上微调，模拟真实情况
+        let majorVersions = ["17.5.1", "17.4.1", "17.3.1", "16.7.1", "16.6.1"]
+        
+        // 80%几率使用当前版本，20%使用其他常见版本
+        if Int.random(in: 1...100) <= 80 {
+            return currentVersion
+        } else {
+            return majorVersions.randomElement() ?? currentVersion
+        }
+    }
+    
+    // MARK: - 生成真实风格的设备ID
+    private func generateRealisticDeviceID() -> String {
+        // 生成类似真实设备的UUID格式
+        let segments = [
+            String.randomHexString(length: 8),
+            String.randomHexString(length: 4),
+            "4" + String.randomHexString(length: 3), // UUID v4格式
+            String.randomHexString(length: 4),
+            String.randomHexString(length: 12)
+        ]
+        return segments.joined(separator: "-").uppercased()
     }
     
     // MARK: - 生成iPhone原生数据元数据
@@ -485,22 +549,41 @@ class HealthKitManager: ObservableObject {
             HKMetadataKeyWasUserEntered: false,                    // 标记为自动记录
             HKMetadataKeyDeviceName: "iPhone",                     // 设备名称（关键）
             HKMetadataKeyDeviceManufacturerName: "Apple Inc.",     // 制造商
-            HKMetadataKeyDeviceSerialNumber: UIDevice.current.identifierForVendor?.uuidString ?? "Unknown", // 设备序列号
+            HKMetadataKeyDeviceSerialNumber: generateRealisticSerialNumber(), // 真实风格序列号
             HKMetadataKeyExternalUUID: UUID().uuidString,         // 外部UUID
-            // 自定义元数据（使用字符串键）
-            "DeviceModel": UIDevice.current.model,                // 设备型号
-            "SourceVersion": "1.0",                               // 数据源版本（移除私有前缀）
-            // 隐藏的应用标识（便于内部识别和管理）
-            "SSDGGenerated": true,
-            "DataVersion": "3.0"
+            // 模拟Apple Health应用的标识
+            "HKWasUserEntered": NSNumber(value: false),           // Apple格式
+            "HKMetadataKeyAppleDeviceCalibrated": NSNumber(value: true), // 设备已校准
         ]
         
-        // 合并额外的元数据
+        // 合并额外的元数据（移除明显生成标识）
         for (key, value) in extraData {
-            metadata[key] = value
+            // 跳过明显的生成标识
+            if !["SSDGGenerated", "DataVersion", "Generated"].contains(key) {
+                metadata[key] = value
+            }
         }
         
         return metadata
+    }
+    
+    // MARK: - 生成真实风格的设备序列号
+    private func generateRealisticSerialNumber() -> String {
+        // 模拟真实iPhone序列号格式：F2LXXXXX
+        let letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        let numbers = "0123456789"
+        let alphanumeric = letters + numbers
+        
+        var serialNumber = "F2L" // iPhone常见前缀
+        
+        // 添加5位随机字符
+        for _ in 0..<5 {
+            let randomIndex = Int.random(in: 0..<alphanumeric.count)
+            let character = alphanumeric[alphanumeric.index(alphanumeric.startIndex, offsetBy: randomIndex)]
+            serialNumber.append(character)
+        }
+        
+        return serialNumber
     }
     
     // MARK: - 改进的创建睡眠样本（完全模拟iPhone数据）
