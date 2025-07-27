@@ -465,6 +465,20 @@ class HealthKitManager: ObservableObject {
         return (startDate, endDate)
     }
     
+    // MARK: - 创建iPhone设备对象
+    private func createiPhoneDevice() -> HKDevice {
+        return HKDevice(
+            name: "iPhone",
+            manufacturer: "Apple Inc.",
+            model: UIDevice.current.model,
+            hardwareVersion: UIDevice.current.systemVersion,
+            firmwareVersion: UIDevice.current.systemVersion,
+            softwareVersion: UIDevice.current.systemVersion,
+            localIdentifier: UIDevice.current.identifierForVendor?.uuidString,
+            udiDeviceIdentifier: nil
+        )
+    }
+    
     // MARK: - 生成iPhone原生数据元数据
     private func createiPhoneMetadata(extraData: [String: Any] = [:]) -> [String: Any] {
         var metadata: [String: Any] = [
@@ -493,8 +507,9 @@ class HealthKitManager: ObservableObject {
     private func createSleepSamples(from sleepData: SleepData, mode: DataMode = .simple) -> [HKCategorySample] {
         var samples: [HKCategorySample] = []
         
-        // 使用统一的iPhone元数据生成
+        // 使用统一的iPhone元数据和设备对象
         let metadata = createiPhoneMetadata()
+        let device = createiPhoneDevice()
         
         switch mode {
         case .simple:
@@ -505,6 +520,7 @@ class HealthKitManager: ObservableObject {
                     value: HKCategoryValueSleepAnalysis.inBed.rawValue,
                     start: stage.startTime,
                     end: stage.endTime,
+                    device: device,
                     metadata: metadata
                 )
                 samples.append(inBedSample)
@@ -542,6 +558,7 @@ class HealthKitManager: ObservableObject {
                     value: categoryValue,
                     start: stage.startTime,
                     end: stage.endTime,
+                    device: device,
                     metadata: metadata
                 )
                 samples.append(stageSample)
@@ -555,8 +572,9 @@ class HealthKitManager: ObservableObject {
     private func createStepsSamples(from stepsData: StepsData) -> [HKQuantitySample] {
         var samples: [HKQuantitySample] = []
         
-        // 使用统一的iPhone元数据生成
+        // 使用统一的iPhone元数据和设备对象
         let metadata = createiPhoneMetadata()
+        let device = createiPhoneDevice()
         
         for hourlySteps in stepsData.hourlySteps {
             let stepsQuantity = HKQuantity(unit: HKUnit.count(), doubleValue: Double(hourlySteps.steps))
@@ -565,6 +583,7 @@ class HealthKitManager: ObservableObject {
                 quantity: stepsQuantity,
                 start: hourlySteps.startTime,
                 end: hourlySteps.endTime,
+                device: device,
                 metadata: metadata
             )
             samples.append(stepsSample)
@@ -987,6 +1006,7 @@ class HealthKitManager: ObservableObject {
             quantity: quantity,
             start: startDate,
             end: endDate,
+            device: createiPhoneDevice(),
             metadata: createiPhoneMetadata(extraData: [
                 "ActivityType": increment.activityType.rawValue,
                 "IncrementType": "MicroIncrement"
@@ -1067,11 +1087,14 @@ class HealthKitManager: ObservableObject {
         var samples: [HKCategorySample] = []
         
         // 主要睡眠阶段
+        let device = createiPhoneDevice()
+        
         let inBedSample = HKCategorySample(
             type: sleepType,
             value: HKCategoryValueSleepAnalysis.inBed.rawValue,
             start: sleepData.bedTime,
             end: sleepData.wakeTime,
+            device: device,
             metadata: createiPhoneMetadata(extraData: [
                 "SleepType": "InBed"
             ])
@@ -1083,6 +1106,7 @@ class HealthKitManager: ObservableObject {
             value: HKCategoryValueSleepAnalysis.asleep.rawValue,
             start: sleepData.bedTime,
             end: sleepData.wakeTime,
+            device: device,
             metadata: createiPhoneMetadata(extraData: [
                 "SleepType": "Asleep"
             ])
@@ -1108,6 +1132,7 @@ class HealthKitManager: ObservableObject {
                 value: stageValue,
                 start: stage.startTime,
                 end: stage.endTime,
+                device: device,
                 metadata: createiPhoneMetadata(extraData: [
                     "SleepStage": stage.stage.rawValue
                 ])
