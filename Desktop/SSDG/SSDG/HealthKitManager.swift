@@ -551,9 +551,9 @@ class HealthKitManager: ObservableObject {
             HKMetadataKeyDeviceManufacturerName: "Apple Inc.",     // 制造商
             HKMetadataKeyDeviceSerialNumber: generateRealisticSerialNumber(), // 真实风格序列号
             HKMetadataKeyExternalUUID: UUID().uuidString,         // 外部UUID
-            // 模拟Apple Health应用的标识
-            "HKWasUserEntered": NSNumber(value: false),           // Apple格式
-            "HKMetadataKeyAppleDeviceCalibrated": NSNumber(value: true), // 设备已校准
+            // 模拟Apple Health应用的标识（使用不同的键名）
+            "HKPrivateMetadataKeyAppleDevice": NSNumber(value: true),     // Apple设备标识
+            "HKMetadataKeyAppleDeviceCalibrated": NSNumber(value: true),  // 设备已校准
         ]
         
         // 合并额外的元数据（移除明显生成标识）
