@@ -26,7 +26,7 @@ struct ContentView: View {
             TodaySyncView()
                 .tabItem {
                     Image(systemName: "heart.circle.fill")
-                    Text("SSDG")
+                    Text("Health Data Tracker")
                 }
             
             // 第二页：用户管理
@@ -197,9 +197,9 @@ struct TodaySyncView: View {
                     .padding(.horizontal, 20)
                 }
             }
-                    .navigationTitle("SSDG")
+                    .navigationTitle("Health Monitor")
         .navigationBarHidden(true)
-        .alert("SSDG", isPresented: $showingAlert) {
+        .alert("Health Data Tracker", isPresented: $showingAlert) {
             Button("OK") {}
         } message: {
             Text(alertMessage)

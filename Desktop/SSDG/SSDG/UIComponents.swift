@@ -653,7 +653,7 @@ struct AppInfoCard: View {
             }
             
             VStack(spacing: 12) {
-                InfoRow(title: "应用名称", value: "SSDG")
+                InfoRow(title: "应用名称", value: "Health Data Tracker")
                 InfoRow(title: "版本", value: "1.0.0")
                 InfoRow(title: "构建版本", value: "2025.01.12")
                 InfoRow(title: "开发者", value: "谢铭麟")

@@ -36,7 +36,7 @@ struct SSDGApp: App {
     
         // MARK: - 应用初始化
     private func initializeApp() {
-        print("🚀 SSDG App Started")
+        print("🚀 Health Data Tracker Started")
 
         // 加载个性化配置
         VirtualUser.loadPersonalizedProfiles()

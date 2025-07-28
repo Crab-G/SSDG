@@ -391,7 +391,7 @@ class HealthKitManager: ObservableObject {
             // 优先删除应用自己生成的数据
             let appGeneratedSleep = existingData.sleepSamples.filter { sample in
                 if let deviceName = sample.metadata?[HKMetadataKeyDeviceName] as? String {
-                    return deviceName == "iPhone" || deviceName.contains("SSDG")
+                    return deviceName == "iPhone" || deviceName.contains("Health")
                 }
                 return false
             }
@@ -428,7 +428,7 @@ class HealthKitManager: ObservableObject {
             // 优先删除应用自己生成的数据
             let appGeneratedSteps = existingData.stepsSamples.filter { sample in
                 if let deviceName = sample.metadata?[HKMetadataKeyDeviceName] as? String {
-                    return deviceName == "iPhone" || deviceName.contains("SSDG")
+                    return deviceName == "iPhone" || deviceName.contains("Health")
                 }
                 return false
             }
@@ -577,7 +577,7 @@ class HealthKitManager: ObservableObject {
         // 合并额外的元数据（移除明显生成标识）
         for (key, value) in extraData {
             // 跳过明显的生成标识
-            if !["SSDGGenerated", "DataVersion", "Generated"].contains(key) {
+            if !["AppGenerated", "DataVersion", "Generated", "Synthetic"].contains(key) {
                 metadata[key] = value
             }
         }
@@ -807,12 +807,12 @@ class HealthKitManager: ObservableObject {
                 // 先尝试删除应用生成的数据
                 let appGeneratedSleep = sleepSamples.filter { sample in
                     if let metadata = sample.metadata,
-                       let isAppGenerated = metadata["SSDGAppGenerated"] as? Bool {
+                       let isAppGenerated = metadata["AppGenerated"] as? Bool {
                         return isAppGenerated
                     }
                     // 备用判断：设备名称包含iPhone或SSDG
                     if let deviceName = sample.metadata?[HKMetadataKeyDeviceName] as? String {
-                        return deviceName.contains("iPhone") || deviceName.contains("SSDG")
+                        return deviceName.contains("iPhone") || deviceName.contains("Health")
                     }
                     return false
                 }
@@ -849,12 +849,12 @@ class HealthKitManager: ObservableObject {
                 // 先尝试删除应用生成的数据
                 let appGeneratedSteps = stepsSamples.filter { sample in
                     if let metadata = sample.metadata,
-                       let isAppGenerated = metadata["SSDGAppGenerated"] as? Bool {
+                       let isAppGenerated = metadata["AppGenerated"] as? Bool {
                         return isAppGenerated
                     }
                     // 备用判断：设备名称包含iPhone或SSDG
                     if let deviceName = sample.metadata?[HKMetadataKeyDeviceName] as? String {
-                        return deviceName.contains("iPhone") || deviceName.contains("SSDG")
+                        return deviceName.contains("iPhone") || deviceName.contains("Health")
                     }
                     return false
                 }
