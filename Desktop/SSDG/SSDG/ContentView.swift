@@ -21,7 +21,8 @@ struct ContentView: View {
     }
     
     var body: some View {
-        TabView {
+        ZStack {
+            TabView {
             // 第一页：今日同步
             TodaySyncView()
                 .tabItem {
@@ -211,6 +212,11 @@ struct TodaySyncView: View {
                 setupUser()
             }
         }
+            
+            // 权限检查覆盖层
+            if !healthKitManager.isAuthorized {
+                HealthKitPermissionView()
+            }
         }
     }
     
@@ -1746,6 +1752,103 @@ struct DataModeToggleCard: View {
                         .stroke(Color.white.opacity(0.1), lineWidth: 1)
                 )
         )
+    }
+}
+
+// MARK: - HealthKit权限请求视图
+struct HealthKitPermissionView: View {
+    @StateObject private var healthKitManager = HealthKitManager.shared
+    @State private var isRequesting = false
+    
+    var body: some View {
+        ZStack {
+            // 半透明背景
+            Color.black.opacity(0.6)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 24) {
+                // 图标
+                Image(systemName: "heart.circle.fill")
+                    .font(.system(size: 80))
+                    .foregroundColor(.red)
+                
+                VStack(spacing: 12) {
+                    Text("HealthKit授权")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text("应用需要访问您的健康数据以提供完整的健康监控功能")
+                        .font(.body)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary)
+                }
+                
+                VStack(spacing: 8) {
+                    HStack {
+                        Image(systemName: "bed.double.fill")
+                            .foregroundColor(.blue)
+                        Text("睡眠数据")
+                        Spacer()
+                        Text("读取 & 写入")
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    HStack {
+                        Image(systemName: "figure.walk")
+                            .foregroundColor(.green)
+                        Text("步数数据")
+                        Spacer()
+                        Text("读取 & 写入")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+                
+                Button(action: {
+                    requestPermission()
+                }) {
+                    HStack {
+                        if isRequesting {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        }
+                        Text(isRequesting ? "请求授权中..." : "授权HealthKit访问")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .disabled(isRequesting)
+            }
+            .padding(24)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(.regularMaterial)
+            )
+            .padding(.horizontal, 20)
+        }
+    }
+    
+    private func requestPermission() {
+        isRequesting = true
+        
+        Task {
+            let success = await healthKitManager.requestHealthKitAuthorization()
+            
+            await MainActor.run {
+                isRequesting = false
+                if success {
+                    print("✅ HealthKit权限授权成功")
+                    UserDefaults.standard.set(true, forKey: "hasRequestedHealthKitPermission")
+                } else {
+                    print("❌ HealthKit权限授权失败")
+                }
+            }
+        }
     }
 }
 
