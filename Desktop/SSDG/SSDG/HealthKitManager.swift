@@ -164,6 +164,15 @@ class HealthKitManager: ObservableObject {
                 samples.append(contentsOf: sleepSamples)
             }
             
+            // 检查样本是否为空
+            guard !samples.isEmpty else {
+                print("⚠️ 跳过写入空的睡眠数据样本")
+                await MainActor.run {
+                    isProcessing = false
+                }
+                return true // 空数据不算错误
+            }
+            
             try await healthStore.save(samples)
             
             await MainActor.run {
@@ -201,6 +210,15 @@ class HealthKitManager: ObservableObject {
                 // 创建步数样本
                 let stepsSamples = createStepsSamples(from: steps)
                 samples.append(contentsOf: stepsSamples)
+            }
+            
+            // 检查样本是否为空
+            guard !samples.isEmpty else {
+                print("⚠️ 跳过写入空的步数数据样本")
+                await MainActor.run {
+                    isProcessing = false
+                }
+                return true // 空数据不算错误
             }
             
             try await healthStore.save(samples)
@@ -551,9 +569,9 @@ class HealthKitManager: ObservableObject {
             HKMetadataKeyDeviceManufacturerName: "Apple Inc.",     // 制造商
             HKMetadataKeyDeviceSerialNumber: generateRealisticSerialNumber(), // 真实风格序列号
             HKMetadataKeyExternalUUID: UUID().uuidString,         // 外部UUID
-            // 模拟Apple Health应用的标识（使用不同的键名）
-            "HKPrivateMetadataKeyAppleDevice": NSNumber(value: true),     // Apple设备标识
-            "HKMetadataKeyAppleDeviceCalibrated": NSNumber(value: true),  // 设备已校准
+            // 模拟Apple Health应用的标识（使用有效的自定义键名）
+            "AppleDeviceSource": NSNumber(value: true),                   // Apple设备标识
+            "DeviceCalibrated": NSNumber(value: true),                    // 设备已校准
         ]
         
         // 合并额外的元数据（移除明显生成标识）
