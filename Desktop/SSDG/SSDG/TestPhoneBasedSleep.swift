@@ -75,8 +75,8 @@ struct TestPhoneBasedSleep {
             let sleepStages = sleepData.sleepStages.filter { $0.stage != .awake }
             
             print("\n段落分析:")
-            print("  清醒段(手机使用): \(awakeStages.count)个")
-            print("  睡眠段: \(sleepStages.count)个")
+            print("  卧床时间段: \(sleepStages.count)个")
+            print("  间隔（空白）: \(sleepStages.count > 1 ? "\(sleepStages.count - 1)个" : "无")")
             
             // 显示时间线
             print("\n时间线详情:")
@@ -84,9 +84,12 @@ struct TestPhoneBasedSleep {
             formatter.dateFormat = "HH:mm"
             
             for (index, stage) in sleepData.sleepStages.enumerated() {
-                let duration = Int(stage.duration / 60)
-                let type = stage.stage == .awake ? "📱使用" : "😴睡眠"
-                print("  \(index+1). \(formatter.string(from: stage.startTime))-\(formatter.string(from: stage.endTime)) (\(duration)分钟) \(type)")
+                if stage.stage != .awake {  // 只显示卧床时间段
+                    let duration = Int(stage.duration / 60)
+                    let hours = duration / 60
+                    let minutes = duration % 60
+                    print("  \(index+1). \(formatter.string(from: stage.startTime))-\(formatter.string(from: stage.endTime)) (\(hours)小时\(minutes)分钟)")
+                }
             }
             
             // 找出主睡眠段
@@ -97,15 +100,15 @@ struct TestPhoneBasedSleep {
                 print("  时长: \(String(format: "%.2f", mainDuration))小时")
             }
             
-            // 统计手机使用模式
-            let beforeBedAwake = awakeStages.filter { $0.endTime <= sleepData.bedTime }
-            let nightAwake = awakeStages.filter { $0.startTime > sleepData.bedTime && $0.endTime < sleepData.wakeTime }
-            let morningAwake = awakeStages.filter { $0.startTime >= sleepData.wakeTime.addingTimeInterval(-1800) }
-            
-            print("\n手机使用模式:")
-            print("  睡前使用: \(beforeBedAwake.count)次")
-            print("  夜间查看: \(nightAwake.count)次")
-            print("  早晨使用: \(morningAwake.count)次")
+            // 如果有多个段，显示间隔
+            if sleepStages.count > 1 {
+                print("\n段落间隔:")
+                for i in 0..<(sleepStages.count - 1) {
+                    let gap = sleepStages[i+1].startTime.timeIntervalSince(sleepStages[i].endTime)
+                    let gapMinutes = Int(gap / 60)
+                    print("  间隔\(i+1): \(gapMinutes)分钟")
+                }
+            }
         }
         
         print("\n\n🎉 测试完成！")

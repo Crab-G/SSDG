@@ -670,26 +670,11 @@ class HealthKitManager: ObservableObject {
         
         switch mode {
         case .simple:
-            // 🔥 新方案：为每个睡眠段创建独立的样本，模拟iPhone的睡眠检测
-            // 这样可以在Health应用中显示多个睡眠段（如手机使用检测）
+            // 🔥 新方案：只创建卧床时间样本，不创建清醒样本
+            // 这样更贴合真实iPhone的记录（只显示卧床时间段）
             for stage in sleepData.sleepStages {
-                // 根据stage类型创建不同的样本
-                if stage.stage == .awake && stage.duration < 3600 {
-                    // 短暂的清醒段（小于1小时）可能是手机使用
-                    // 跳过或创建清醒样本
-                    if stage.duration >= 60 { // 至少1分钟
-                        let awakeSample = HKCategorySample(
-                            type: HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
-                            value: HKCategoryValueSleepAnalysis.awake.rawValue,
-                            start: stage.startTime,
-                            end: stage.endTime,
-                            device: device,
-                            metadata: metadata
-                        )
-                        samples.append(awakeSample)
-                    }
-                } else {
-                    // 睡眠段创建为卧床时间
+                // 只处理睡眠段，忽略清醒段
+                if stage.stage != .awake {
                     let inBedSample = HKCategorySample(
                         type: HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
                         value: HKCategoryValueSleepAnalysis.inBed.rawValue,
