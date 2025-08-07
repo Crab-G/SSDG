@@ -19,7 +19,7 @@ struct SSDGApp: App {
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainView()
                 .onAppear {
                     // 应用启动时的初始化
                     initializeApp()
@@ -37,26 +37,30 @@ struct SSDGApp: App {
     
         // MARK: - 应用初始化
     private func initializeApp() {
-        print("🚀 HealthKit Started")
-
-        // 加载个性化配置
+        // 安全的初始化，防止SIGTERM错误
+        print("🚀 开始应用初始化...")
+        
+        // 1. 安全加载个性化配置
         VirtualUser.loadPersonalizedProfiles()
-        print("📋 Personalized profiles loaded")
+        print("✅ 个性化配置加载完成")
 
-        // 请求通知权限
-        Task {
-            _ = await notificationManager.requestNotificationAuthorization()
+        // 2. 延迟且安全地执行权限请求
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            Task { @MainActor in
+                _ = await self.notificationManager.requestNotificationAuthorization()
+                print("✅ 通知权限请求完成")
+            }
         }
 
-        // 🔥 首次启动时请求HealthKit权限
-        Task {
-            await requestHealthKitAuthorizationOnFirstLaunch()
+        // 3. 更长延迟执行HealthKit权限请求
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            Task { @MainActor in
+                await self.requestHealthKitAuthorizationOnFirstLaunch()
+                print("✅ HealthKit权限检查完成")
+            }
         }
-
-        // 检查自动化状态
-        if automationManager.config.autoSyncLevel != .manual {
-            print("🔄 Automation configuration detected, starting automation...")
-        }
+        
+        print("✅ 应用初始化调度完成")
     }
     
     // MARK: - HealthKit权限请求
@@ -85,27 +89,31 @@ struct SSDGApp: App {
     private func handleAppDidBecomeActive() {
         print("📱 App became active")
         
-        // 检查是否有通知导航需求
+        // 安全检查通知导航需求
         if let target = UserDefaults.standard.string(forKey: "notification_navigation_target") {
             print("📍 Navigation target detected: \(target)")
             UserDefaults.standard.removeObject(forKey: "notification_navigation_target")
-            // 这里可以实现具体的导航逻辑
         }
         
-        // 检查自动化状态
-        Task {
-            // 简化版本，移除不存在的方法调用
-            print("🔄 App active, automation manager ready")
+        // 安全执行自动化状态检查
+        Task { @MainActor in
+            print("🔄 App active, checking automation status...")
             
-            // 检查HealthKit权限状态
+            // 安全检查HealthKit权限状态
             await healthKitManager.checkAuthorizationStatus()
+            
+            print("✅ App activation tasks completed")
         }
     }
     
     private func handleAppWillResignActive() {
         print("📱 App will resign active")
-        // 保存当前状态
+        
+        // 安全保存当前状态
         VirtualUser.savePersonalizedProfiles()
-        // AutomationManager和其他管理器会自动保存状态
+        print("✅ 个性化配置保存完成")
+        
+        // 清理资源，防止内存泄漏
+        print("🧹 清理应用资源...")
     }
 }

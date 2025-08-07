@@ -81,7 +81,18 @@ class PersonalizedSystemDemo {
         
         print("\n🚶‍♂️ 步数分布生成 (\(user.personalizedProfile.activityLevel.displayName))")
         
-        let distribution = PersonalizedDataGenerator.generatePersonalizedDailySteps(for: user, date: today)
+        // 使用睡眠感知算法生成步数分布
+        let yesterdayDate = calendar.date(byAdding: .day, value: -1, to: today)!
+        let referenceSleepData = PersonalizedDataGenerator.generatePersonalizedSleepData(
+            for: user, 
+            date: yesterdayDate, 
+            mode: .simple
+        )
+        let distribution = PersonalizedDataGenerator.generateEnhancedDailySteps(
+            for: user, 
+            date: today, 
+            sleepData: referenceSleepData
+        )
         
         print("   总步数: \(distribution.totalSteps)")
         print("   活跃时段: \(distribution.hourlyDistribution.keys.sorted())")
@@ -106,7 +117,20 @@ class PersonalizedSystemDemo {
             activityLevel: .medium
         )
         
-        let distribution = PersonalizedDataGenerator.generatePersonalizedDailySteps(for: user, date: Date())
+        // 使用睡眠感知算法生成步数分布
+        let today = Date()
+        let calendar = Calendar.current
+        let yesterdayDate = calendar.date(byAdding: .day, value: -1, to: today)!
+        let referenceSleepData = PersonalizedDataGenerator.generatePersonalizedSleepData(
+            for: user, 
+            date: yesterdayDate, 
+            mode: .simple
+        )
+        let distribution = PersonalizedDataGenerator.generateEnhancedDailySteps(
+            for: user, 
+            date: today, 
+            sleepData: referenceSleepData
+        )
         
         print("准备注入的微增量数据:")
         print("   计划总步数: \(distribution.totalSteps)")
@@ -148,7 +172,7 @@ class PersonalizedSystemDemo {
         print("从普通用户属性推断个性化标签:")
         
         for (index, user) in testUsers.enumerated() {
-            let profile = user.personalizedProfile
+            let profile = PersonalizedProfile.inferFromUser(user)
             
             print("\n👤 用户 \(index + 1):")
             print("   原始属性: 睡眠\(String(format: "%.1f", user.sleepBaseline))h, 步数\(user.stepsBaseline)")

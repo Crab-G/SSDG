@@ -461,4 +461,18 @@ private struct PackageMetadata: Codable {
     let totalSleepHours: Double
     let totalSteps: Int
     let dataVersion: String
+}
+
+// MARK: - 清除缓存扩展
+extension OfflineStorageManager {
+    
+    // 清除缓存
+    func clearCache() {
+        // 清除所有缓存数据
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "PreCacheStatus")
+        defaults.removeObject(forKey: "WeeklyPackageMetadata")
+        
+        print("✅ OfflineStorageManager: 缓存已清除")
+    }
 } 

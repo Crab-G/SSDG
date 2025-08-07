@@ -403,7 +403,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = "dev.healthtrack.dailysync dev.healthtrack.datacheck";
-				INFOPLIST_KEY_CFBundleDisplayName = "HealthKit";
+				INFOPLIST_KEY_CFBundleDisplayName = HealthKit;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "HealthKit needs to read your health data to provide comprehensive health analytics and synchronization";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "HealthKit needs to write health data for comprehensive health monitoring and synchronization";
 				INFOPLIST_KEY_NSUserNotificationUsageDescription = "HealthKit needs to send notifications for health monitoring reminders and sync status updates";
@@ -439,7 +439,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = "dev.healthtrack.dailysync dev.healthtrack.datacheck";
-				INFOPLIST_KEY_CFBundleDisplayName = "HealthKit";
+				INFOPLIST_KEY_CFBundleDisplayName = HealthKit;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "HealthKit needs to read your health data to provide comprehensive health analytics and synchronization";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "HealthKit needs to write health data for comprehensive health monitoring and synchronization";
 				INFOPLIST_KEY_NSUserNotificationUsageDescription = "HealthKit needs to send notifications for health monitoring reminders and sync status updates";

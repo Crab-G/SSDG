@@ -125,7 +125,20 @@ class SyncStateManager: ObservableObject {
         lastSyncDate = Date()
         todaySyncStatus = .notSynced  // 生成数据后状态应该是未同步
         
+        // 数据更新完成
+        
         // 注意：这里不立即添加到历史记录，只有在成功同步后才添加
+        
+        saveState()
+    }
+    
+    // 重载方法：只更新步数数据
+    func updateStepsData(_ stepsData: StepsData) {
+        todayStepsData = stepsData
+        lastSyncDate = Date()
+        todaySyncStatus = .notSynced
+        
+        // 步数数据更新完成
         
         saveState()
     }
@@ -174,10 +187,23 @@ class SyncStateManager: ObservableObject {
         
         // 检查是否是新的一天
         if !calendar.isDate(lastSync, inSameDayAs: today) {
-            // 新的一天，重置状态
+            // 检查今日数据是否是昨天的
+            var shouldClearTodayData = false
+            if let sleepData = todaySleepData, !calendar.isDate(sleepData.date, inSameDayAs: today) {
+                shouldClearTodayData = true
+            }
+            if let stepsData = todayStepsData, !calendar.isDate(stepsData.date, inSameDayAs: today) {
+                shouldClearTodayData = true
+            }
+            
+            // 只有在数据确实是过期的情况下才清空
+            if shouldClearTodayData {
+                todaySleepData = nil
+                todayStepsData = nil
+            }
+            
+            // 新的一天，重置同步状态
             todaySyncStatus = .notSynced
-            todaySleepData = nil
-            todayStepsData = nil
             
             // 清理过期的历史数据
             cleanupOldHistoricalData()
@@ -211,19 +237,45 @@ class SyncStateManager: ObservableObject {
     }
     
     func updateTodaySleepData(_ sleepData: SleepData) {
-        // 更新今日睡眠数据到历史数据中
+        // 更新今日睡眠数据
+        todaySleepData = sleepData
+        
+        // 同时更新历史数据中的今日睡眠数据
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
+        let sleepDate = calendar.startOfDay(for: sleepData.date)
         
-        // 移除今日的旧睡眠数据（如果有）
-        historicalSleepData.removeAll { calendar.isDate($0.date, inSameDayAs: today) }
+        // 🔥 修复：使用睡眠数据的日期而不是今天的日期
+        // 移除相同日期的旧睡眠数据（如果有）
+        historicalSleepData.removeAll { 
+            calendar.isDate($0.date, inSameDayAs: sleepDate) 
+        }
         
-        // 添加新的今日睡眠数据
+        // 添加新的睡眠数据
         historicalSleepData.append(sleepData)
         
-        // 按日期排序
+        // 按日期排序并去重
         historicalSleepData.sort { $0.date < $1.date }
         
+        // 🔥 额外的去重保护：确保没有重复的日期
+        var uniqueSleepData: [SleepData] = []
+        var seenDates: Set<Date> = []
+        
+        for sleep in historicalSleepData {
+            let startOfDay = calendar.startOfDay(for: sleep.date)
+            if !seenDates.contains(startOfDay) {
+                seenDates.insert(startOfDay)
+                uniqueSleepData.append(sleep)
+            }
+        }
+        
+        historicalSleepData = uniqueSleepData
+        
+        saveState()
+    }
+    
+    func updateTodayStepsData(_ stepsData: StepsData) {
+        // 更新今日步数数据
+        todayStepsData = stepsData
         saveState()
     }
     
@@ -339,10 +391,10 @@ class SyncStateManager: ObservableObject {
         
         do {
             let codableStepsData = try decoder.decode(CodableStepsData.self, from: data)
-            // 创建简化的步数数据
+            // 使用扩展方法创建步数数据，保留totalSteps
             return StepsData(
                 date: codableStepsData.date,
-                hourlySteps: [] // 简化存储，不保存详细小时数据
+                totalSteps: codableStepsData.totalSteps
             )
         } catch {
             print("❌ 步数数据解码失败: \(error.localizedDescription)")
@@ -524,6 +576,15 @@ class SyncStateManager: ObservableObject {
         return todaySleepData != nil && todayStepsData != nil
     }
     
+    // MARK: - 计算属性 - 最近数据
+    var recentSleepData: [SleepData] {
+        return Array(historicalSleepData.suffix(7))
+    }
+    
+    var recentStepsData: [StepsData] {
+        return Array(historicalStepsData.suffix(7))
+    }
+    
     // MARK: - 清理过期历史数据
     func cleanupOldHistoricalData() {
         let calendar = Calendar.current
@@ -643,6 +704,7 @@ extension StepsData {
             startTime: date,
             endTime: date.addingTimeInterval(3600)
         )]
+        self.stepsIntervals = [] // 简化版本不包含精细间隔
     }
 }
 

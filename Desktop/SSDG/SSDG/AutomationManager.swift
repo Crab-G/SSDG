@@ -29,7 +29,20 @@ class StepInjectionManager: ObservableObject {
         // 使用 PersonalizedDataGenerator 生成数据，但需要在后台线程
         let distribution = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                let dist = PersonalizedDataGenerator.generatePersonalizedDailySteps(for: user, date: today)
+                // 使用睡眠感知算法生成步数分布
+                let calendar = Calendar.current
+                let yesterdayDate = calendar.date(byAdding: .day, value: -1, to: today)!
+                // 生成睡眠感知的步数分布
+                let referenceSleepData = PersonalizedDataGenerator.generatePersonalizedSleepData(
+                    for: user, 
+                    date: yesterdayDate, 
+                    mode: .simple
+                )
+                let dist = PersonalizedDataGenerator.generateEnhancedDailySteps(
+                    for: user, 
+                    date: today, 
+                    sleepData: referenceSleepData
+                )
                 continuation.resume(returning: dist)
             }
         }
@@ -124,6 +137,25 @@ final class AutomationManager: ObservableObject {
     // 计算属性 - automationStatus 作为 status 的别名
     var automationStatus: AutomationStatus {
         return status
+    }
+    
+    // 自动化启用状态计算属性
+    var isAutomationEnabled: Bool {
+        get { return status != .disabled }
+        set { 
+            if newValue {
+                startAutomation()
+            } else {
+                stopAutomation()
+            }
+        }
+    }
+    
+    // 下次同步时间计算属性
+    var nextSyncTime: String? {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter.string(from: nextScheduledRun)
     }
     
     // 定时器

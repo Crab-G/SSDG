@@ -165,7 +165,8 @@ struct HistoricalDataSyncSheet: View {
         guard let user = syncStateManager.currentUser else { return false }
         
         // 生成历史数据
-        let historicalData = DataGenerator.generateHistoricalData(for: user, days: days, mode: .simple)
+        // 🔧 修复：使用PersonalizedDataGenerator替代旧的DataGenerator
+        let historicalData = PersonalizedDataGenerator.generatePersonalizedHistoricalData(for: user, days: days, mode: .simple)
         
         // 同步到HealthKit
         let result = await healthKitManager.replaceOrWriteData(
@@ -184,7 +185,7 @@ struct DaySelectorCard: View {
     @Binding var selectedDays: Int
     let isProcessing: Bool
     
-    private let dayOptions = [7, 14, 30, 60, 90]
+    private let dayOptions = [7, 30, 90, 180, 365]
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -236,7 +237,7 @@ struct DaySelectorCard: View {
                     
                     Slider(
                         value: sliderBinding,
-                        in: 1...180,
+                        in: 1...365,
                         step: 1
                     )
                     .tint(.blue)
@@ -274,9 +275,13 @@ struct DaySelectorCard: View {
         case 1...7:
             return "适合快速测试和验证功能"
         case 8...30:
-            return "推荐选择，提供充足的历史数据参考"
+            return "推荐选择，提供一个月的历史数据"
         case 31...90:
-            return "全面的历史数据，适合长期分析"
+            return "季度数据，适合分析长期趋势"
+        case 91...180:
+            return "半年数据，可以观察季节性变化"
+        case 181...365:
+            return "全年数据，提供完整的年度健康记录"
         default:
             return "超长历史数据，可能需要较长同步时间"
         }

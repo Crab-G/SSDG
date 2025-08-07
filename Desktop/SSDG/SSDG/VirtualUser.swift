@@ -258,14 +258,27 @@ struct DailyStepDistribution: Codable {
         let calendar = Calendar.current
         let isWeekend = calendar.component(.weekday, from: date) == 1 || calendar.component(.weekday, from: date) == 7
         
+        // 检查是否是今天
+        let now = Date()
+        let isToday = calendar.isDate(date, inSameDayAs: now)
+        let currentHour = calendar.component(.hour, from: now)
+        
         // 基于活动水平生成总步数
         let stepRange = profile.activityLevel.stepRange
         let baseSteps = generator.nextInt(in: stepRange.min...stepRange.max)
-        let totalSteps = Int(Float(baseSteps) * (isWeekend ? profile.activityPattern.weekendMultiplier : 1.0))
+        let rawTotalSteps = Int(Float(baseSteps) * (isWeekend ? profile.activityPattern.weekendMultiplier : 1.0))
+        
+        // 🔧 关键修复：确保最小步数下限，防止极少步数bug
+        let totalSteps = max(800, min(25000, rawTotalSteps))
         
         // 生成每小时分布
         var hourlyDistribution: [Int: Int] = [:]
-        let activeHours = getActiveHours(pattern: profile.activityPattern, isWeekend: isWeekend)
+        var activeHours = getActiveHours(pattern: profile.activityPattern, isWeekend: isWeekend)
+        
+        // 如果是今天，过滤掉未来的小时
+        if isToday {
+            activeHours = activeHours.filter { $0 <= currentHour }
+        }
         
         // 使用更真实的时间段权重分配步数
         let hourlyWeights = getRealisticHourlyWeights(activeHours: activeHours, isWeekend: isWeekend)
@@ -277,9 +290,30 @@ struct DailyStepDistribution: Codable {
             // 基于权重分配基础步数
             let baseHourSteps = Int(Float(totalSteps) * weight / totalWeight)
             
-            // 添加自然波动（±25%）
-            let variation = Int(Float(baseHourSteps) * 0.25)
-            let hourSteps = max(0, baseHourSteps + generator.nextInt(in: -variation...variation))
+            // 添加更大的自然波动（±40%）和偶尔的异常值
+            let variation = Int(Float(baseHourSteps) * 0.4)
+            var hourSteps = max(0, baseHourSteps + generator.nextInt(in: -variation...variation))
+            
+            // 根据时间段调整步数
+            let isWorkHour = (hour >= 9 && hour <= 11) || (hour >= 14 && hour <= 16)
+            
+            if isWorkHour {
+                // 工作时间：70%概率几乎没有步数
+                if generator.nextFloat(in: 0...1) < 0.7 {
+                    hourSteps = generator.nextInt(in: 0...50)  // 极少步数
+                }
+            } else {
+                // 非工作时间：正常波动
+                // 10%概率出现异常高值（比如突然的运动）
+                if generator.nextFloat(in: 0...1) < 0.1 {
+                    hourSteps = Int(Float(hourSteps) * generator.nextFloat(in: 1.5...2.5))
+                }
+                
+                // 5%概率出现异常低值（比如会议、看电影等）
+                if generator.nextFloat(in: 0...1) < 0.05 {
+                    hourSteps = Int(Float(hourSteps) * generator.nextFloat(in: 0.1...0.3))
+                }
+            }
             
             hourlyDistribution[hour] = hourSteps
         }
@@ -330,9 +364,11 @@ struct DailyStepDistribution: Codable {
                 // 工作日权重分配 - 符合上班族作息
                 switch hour {
                 case 7...8:   weight = 1.8   // 早晨高峰：上班通勤
-                case 9...11:  weight = 0.6   // 上午工作：久坐
+                case 9:       weight = 0.2   // 刚到公司：少量活动
+                case 10...11: weight = 0.1   // 上午工作：几乎不动
                 case 12...13: weight = 1.4   // 午餐时间：外出就餐
-                case 14...16: weight = 0.4   // 下午工作：继续久坐
+                case 14:      weight = 0.2   // 午后：回到工位
+                case 15...16: weight = 0.1   // 下午工作：继续久坐
                 case 17...18: weight = 1.9   // 下班高峰：通勤回家
                 case 19...20: weight = 1.2   // 晚餐后活动
                 case 21...22: weight = 0.8   // 晚间休闲
@@ -351,7 +387,17 @@ struct DailyStepDistribution: Codable {
         var increments: [StepIncrement] = []
         let calendar = Calendar.current
         
+        // 检查是否是今天，如果是今天则限制到当前时间
+        let now = Date()
+        let isToday = calendar.isDate(date, inSameDayAs: now)
+        let currentHour = calendar.component(.hour, from: now)
+        
         for (hour, steps) in hourlyDistribution {
+            // 如果是今天，跳过未来的小时
+            if isToday && hour > currentHour {
+                continue
+            }
+            
             guard steps > 0 else { 
                 // 添加睡眠时间的处理：即使是0步数的小时，也可能有极少量活动
                 if isSleepHour(hour) {
@@ -362,27 +408,53 @@ struct DailyStepDistribution: Codable {
             
             // 根据小时和步数决定增量密度
             let incrementCount = getIncrementCount(for: hour, steps: steps, generator: &generator)
-            let stepsPerIncrement = steps / incrementCount
-            let remainder = steps % incrementCount
+            
+            // 创建更不规律的步数分布
+            var stepsToDistribute = steps
+            var hourIncrements = [StepIncrement]()
+            var usedMinutes = Set<Int>()
             
             for i in 0..<incrementCount {
-                let minute = generator.nextInt(in: 0...59)
+                // 生成不重复的随机分钟
+                var minute: Int
+                repeat {
+                    minute = generator.nextInt(in: 0...59)
+                } while usedMinutes.contains(minute)
+                usedMinutes.insert(minute)
+                
                 var components = calendar.dateComponents([.year, .month, .day], from: date)
                 components.hour = hour
                 components.minute = minute
-                components.second = 0
+                components.second = generator.nextInt(in: 0...59) // 添加秒级随机性
                 
                 if let timestamp = calendar.date(from: components) {
-                    var stepAmount = stepsPerIncrement + (i < remainder ? 1 : 0)
+                    // 🔥 额外时间安全检查：如果是今天且时间戳超过当前时间，跳过
+                    if isToday && timestamp > now {
+                        continue
+                    }
+                    
+                    // 计算这个增量的步数，使用更大的变化范围
+                    let isLastIncrement = (i == incrementCount - 1)
+                    var stepAmount: Int
+                    
+                    if isLastIncrement {
+                        // 最后一个增量获得剩余的所有步数
+                        stepAmount = stepsToDistribute
+                    } else {
+                        // 使用更不规则的分配：20%到180%的平均值
+                        let avgStepsPerIncrement = stepsToDistribute / (incrementCount - i)
+                        let minSteps = max(1, Int(Float(avgStepsPerIncrement) * 0.2))
+                        let maxSteps = min(stepsToDistribute - (incrementCount - i - 1), Int(Float(avgStepsPerIncrement) * 1.8))
+                        stepAmount = generator.nextInt(in: minSteps...maxSteps)
+                    }
+                    
+                    stepsToDistribute -= stepAmount
                     
                     // 更智能的活动类型判断
                     let activityType = determineActivityType(hour: hour, steps: stepAmount, generator: &generator)
                     
-                    // 确保步数不为负数
-                    stepAmount = max(0, stepAmount)
-                    
                     if stepAmount > 0 {
-                        increments.append(StepIncrement(
+                        hourIncrements.append(StepIncrement(
                             timestamp: timestamp,
                             steps: stepAmount,
                             activityType: activityType
@@ -390,6 +462,9 @@ struct DailyStepDistribution: Codable {
                     }
                 }
             }
+            
+            // 将本小时的增量添加到总列表
+            increments.append(contentsOf: hourIncrements)
         }
         
         return increments.sorted { $0.timestamp < $1.timestamp }
@@ -424,15 +499,52 @@ struct DailyStepDistribution: Codable {
         }
     }
     
-    // 获取合理的增量数量
+    // 获取更真实的增量数量 - 大幅减少分散程度
     private static func getIncrementCount(for hour: Int, steps: Int, generator: inout SeededRandomGenerator) -> Int {
-        switch steps {
-        case 0...50:     return generator.nextInt(in: 1...3)  // 少量步数：1-3个增量
-        case 51...200:   return generator.nextInt(in: 2...5)  // 中等步数：2-5个增量
-        case 201...500:  return generator.nextInt(in: 3...7)  // 较多步数：3-7个增量
-        case 501...1000: return generator.nextInt(in: 4...8)  // 大量步数：4-8个增量
-        default:         return generator.nextInt(in: 5...10) // 极多步数：5-10个增量
+        // 通勤时段(7-9, 17-19)使用更多段落
+        let isCommutingHour = (hour >= 7 && hour <= 9) || (hour >= 17 && hour <= 19)
+        // 运动时段
+        let isExerciseHour = (hour >= 6 && hour <= 7) || (hour >= 19 && hour <= 21)
+        
+        // 工作时段大部分时间是静止的
+        let isWorkHour = (hour >= 9 && hour <= 11) || (hour >= 14 && hour <= 16)
+        
+        // 基于时间段和步数的增量数量
+        let baseCount: Int
+        
+        if isWorkHour {
+            // 工作时间：极少的活动次数
+            switch steps {
+            case 0...50:     baseCount = 1                              // 仅一次活动（去洗手间）
+            case 51...150:   baseCount = generator.nextInt(in: 1...2)   // 1-2次活动
+            default:         baseCount = generator.nextInt(in: 2...3)   // 2-3次活动
+            }
+        } else if isCommutingHour {
+            // 通勤时间：持续活动
+            switch steps {
+            case 0...200:    baseCount = generator.nextInt(in: 2...4)   // 2-4个增量
+            case 201...500:  baseCount = generator.nextInt(in: 3...6)   // 3-6个增量
+            case 501...1000: baseCount = generator.nextInt(in: 4...8)   // 4-8个增量
+            default:         baseCount = generator.nextInt(in: 5...10)  // 5-10个增量
+            }
+        } else if isExerciseHour {
+            // 运动时间：集中的高强度活动
+            switch steps {
+            case 0...500:    baseCount = generator.nextInt(in: 1...3)   // 1-3个增量
+            case 501...1500: baseCount = generator.nextInt(in: 2...4)   // 2-4个增量
+            default:         baseCount = generator.nextInt(in: 3...5)   // 3-5个增量
+            }
+        } else {
+            // 其他时间：零散活动
+            switch steps {
+            case 0...50:     baseCount = 1                              // 仅一次活动
+            case 51...200:   baseCount = generator.nextInt(in: 1...3)   // 1-3个增量
+            case 201...500:  baseCount = generator.nextInt(in: 2...4)   // 2-4个增量
+            default:         baseCount = generator.nextInt(in: 3...5)   // 3-5个增量
+            }
         }
+        
+        return baseCount
     }
     
     // 更智能的活动类型判断
@@ -474,7 +586,7 @@ struct DailyStepDistribution: Codable {
 }
 
 // MARK: - 虚拟用户模型
-struct VirtualUser {
+struct VirtualUser: Codable {
     let id: String
     let age: Int
     let gender: Gender
@@ -536,7 +648,7 @@ struct VirtualUser {
 }
 
 // MARK: - 性别枚举
-enum Gender: String, CaseIterable {
+enum Gender: String, CaseIterable, Codable {
     case male = "男"
     case female = "女"
     case other = "其他"
@@ -911,16 +1023,16 @@ extension VirtualUser {
     // 加载个性化配置
     static func loadPersonalizedProfiles() {
         guard let data = UserDefaults.standard.data(forKey: "PersonalizedProfiles") else {
-            print("📝 未找到已保存的个性化配置")
+            // 未找到已保存的个性化配置
             return
         }
         
         do {
             let profiles = try JSONDecoder().decode([String: PersonalizedProfile].self, from: data)
             personalizedProfiles = profiles
-            print("✅ 个性化配置加载成功，共 \(profiles.count) 个配置")
+            // 个性化配置加载成功
         } catch {
-            print("❌ 个性化配置加载失败: \(error.localizedDescription)")
+            // 个性化配置加载失败，重置
             personalizedProfiles = [:] // 重置为空字典
         }
     }

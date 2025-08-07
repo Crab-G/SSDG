@@ -83,10 +83,11 @@ class QuickPersonalizedTest {
         print("   总睡眠时长: \(sleepData.totalSleepHours) 小时")
         print("   睡眠阶段数: \(sleepData.sleepStages.count)")
         
-        // 测试步数分布生成
-        let stepDistribution = PersonalizedDataGenerator.generatePersonalizedDailySteps(
+        // 测试步数分布生成（使用睡眠感知算法）
+        let stepDistribution = PersonalizedDataGenerator.generateEnhancedDailySteps(
             for: user,
-            date: today
+            date: today,
+            sleepData: sleepData
         )
         
         print("✅ 步数分布生成成功:")

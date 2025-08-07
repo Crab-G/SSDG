@@ -108,7 +108,7 @@ class HealthKitManager: ObservableObject {
         }
     }
     
-    private func checkAuthorizationStatus() async {
+    func checkAuthorizationStatus() async {
         // 安全获取数据类型，避免强制解包
         guard let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis),
               let stepsType = HKQuantityType.quantityType(forIdentifier: .stepCount) else {
@@ -157,8 +157,23 @@ class HealthKitManager: ObservableObject {
         
         do {
             var samples: [HKCategorySample] = []
+            let calendar = Calendar.current
+            
+            // 🔥 修复：去重处理，确保每个日期只有一份睡眠数据
+            var uniqueSleepData: [SleepData] = []
+            var seenDates = Set<Date>()
             
             for sleep in sleepData {
+                let startOfDay = calendar.startOfDay(for: sleep.date)
+                if !seenDates.contains(startOfDay) {
+                    seenDates.insert(startOfDay)
+                    uniqueSleepData.append(sleep)
+                } else {
+                    print("⚠️ 跳过重复日期的睡眠数据: \(startOfDay)")
+                }
+            }
+            
+            for sleep in uniqueSleepData {
                 // 创建睡眠样本
                 let sleepSamples = createSleepSamples(from: sleep, mode: mode)
                 samples.append(contentsOf: sleepSamples)
@@ -677,17 +692,39 @@ class HealthKitManager: ObservableObject {
         let metadata = createiPhoneMetadata()
         let device = createiPhoneDevice()
         
-        for hourlySteps in stepsData.hourlySteps {
-            let stepsQuantity = HKQuantity(unit: HKUnit.count(), doubleValue: Double(hourlySteps.steps))
-            let stepsSample = HKQuantitySample(
-                type: HKObjectType.quantityType(forIdentifier: .stepCount)!,
-                quantity: stepsQuantity,
-                start: hourlySteps.startTime,
-                end: hourlySteps.endTime,
-                device: device,
-                metadata: metadata
-            )
-            samples.append(stepsSample)
+        // 优先使用精细间隔数据（如果有的话）
+        if !stepsData.stepsIntervals.isEmpty {
+            for interval in stepsData.stepsIntervals {
+                // 跳过0步数的间隔，减少数据噪音
+                guard interval.steps > 0 else { continue }
+                
+                let stepsQuantity = HKQuantity(unit: HKUnit.count(), doubleValue: Double(interval.steps))
+                let stepsSample = HKQuantitySample(
+                    type: HKObjectType.quantityType(forIdentifier: .stepCount)!,
+                    quantity: stepsQuantity,
+                    start: interval.startTime,
+                    end: interval.endTime,
+                    device: device,
+                    metadata: metadata
+                )
+                samples.append(stepsSample)
+            }
+        } else {
+            // 回退到小时数据
+            for hourlySteps in stepsData.hourlySteps {
+                guard hourlySteps.steps > 0 else { continue }
+                
+                let stepsQuantity = HKQuantity(unit: HKUnit.count(), doubleValue: Double(hourlySteps.steps))
+                let stepsSample = HKQuantitySample(
+                    type: HKObjectType.quantityType(forIdentifier: .stepCount)!,
+                    quantity: stepsQuantity,
+                    start: hourlySteps.startTime,
+                    end: hourlySteps.endTime,
+                    device: device,
+                    metadata: metadata
+                )
+                samples.append(stepsSample)
+            }
         }
         
         return samples
@@ -954,11 +991,17 @@ class HealthKitManager: ObservableObject {
         }
         
         let calendar = Calendar.current
-        let targetDay = calendar.startOfDay(for: date)
+        guard let targetDay = calendar.date(from: calendar.dateComponents([.year, .month, .day], from: date)) else {
+            print("❌ 无效的目标日期")
+            return false
+        }
         
         // 更大的时间范围，确保清理所有相关数据
-        let startOfRange = calendar.date(byAdding: .day, value: -1, to: targetDay)! // 前一天整天
-        let endOfRange = calendar.date(byAdding: .day, value: 2, to: targetDay)!   // 后一天整天
+        guard let startOfRange = calendar.date(byAdding: .day, value: -1, to: targetDay),
+              let endOfRange = calendar.date(byAdding: .day, value: 2, to: targetDay) else {
+            print("❌ 无法计算日期范围")
+            return false
+        }
         
         print("🔥 开始强力清理重复数据")
         print("   时间范围: \(DateFormatter.localizedString(from: startOfRange, dateStyle: .short, timeStyle: .short)) - \(DateFormatter.localizedString(from: endOfRange, dateStyle: .short, timeStyle: .short))")
@@ -973,9 +1016,20 @@ class HealthKitManager: ObservableObject {
             
             // 2. 分析和删除重复的睡眠数据
             if !sleepSamples.isEmpty {
-                // 按日期分组，找出重复数据
-                let groupedSleep = Dictionary(grouping: sleepSamples) { sample in
-                    calendar.startOfDay(for: sample.startDate)
+                // 安全的按日期分组，添加错误处理
+                var groupedSleep: [Date: [HKCategorySample]] = [:]
+                for sample in sleepSamples {
+                    // 添加安全检查，防止崩溃
+                    guard sample.startDate.timeIntervalSince1970 > 0 else {
+                        print("⚠️ 跳过无效的睡眠样本（无效日期）")
+                        continue
+                    }
+                    
+                    let dayStart = calendar.startOfDay(for: sample.startDate)
+                    if groupedSleep[dayStart] == nil {
+                        groupedSleep[dayStart] = []
+                    }
+                    groupedSleep[dayStart]?.append(sample)
                 }
                 
                 var deletedSleepCount = 0
@@ -1007,9 +1061,20 @@ class HealthKitManager: ObservableObject {
             
             // 3. 分析和删除重复的步数数据
             if !stepsSamples.isEmpty {
-                // 按日期分组，找出重复数据
-                let groupedSteps = Dictionary(grouping: stepsSamples) { sample in
-                    calendar.startOfDay(for: sample.startDate)
+                // 安全的按日期分组，添加错误处理
+                var groupedSteps: [Date: [HKQuantitySample]] = [:]
+                for sample in stepsSamples {
+                    // 添加安全检查，防止崩溃
+                    guard sample.startDate.timeIntervalSince1970 > 0 else {
+                        print("⚠️ 跳过无效的步数样本（无效日期）")
+                        continue
+                    }
+                    
+                    let dayStart = calendar.startOfDay(for: sample.startDate)
+                    if groupedSteps[dayStart] == nil {
+                        groupedSteps[dayStart] = []
+                    }
+                    groupedSteps[dayStart]?.append(sample)
                 }
                 
                 var deletedStepsCount = 0
@@ -1044,6 +1109,54 @@ class HealthKitManager: ObservableObject {
             
         } catch {
             print("❌ 强力清理失败: \(error.localizedDescription)")
+            await MainActor.run {
+                lastError = error
+            }
+            return false
+        }
+    }
+    
+    // MARK: - 快速批量删除（防卡死优化版）
+    func fastBulkDelete(startDate: Date, endDate: Date) async -> Bool {
+        guard isAuthorized else {
+            print("❌ HealthKit未授权")
+            return false
+        }
+        
+        let calendar = Calendar.current
+        let safeStartDate = calendar.startOfDay(for: startDate)
+        let safeEndDate = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: endDate)) ?? endDate
+        
+        // 🚀 减少日志输出，避免卡顿
+        
+        do {
+            // 使用简单的谓词删除，避免复杂查询
+            let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!
+            let sleepPredicate = HKQuery.predicateForSamples(
+                withStart: safeStartDate,
+                end: safeEndDate,
+                options: []
+            )
+            
+            let stepsType = HKObjectType.quantityType(forIdentifier: .stepCount)!
+            let stepsPredicate = HKQuery.predicateForSamples(
+                withStart: safeStartDate,
+                end: safeEndDate,
+                options: []
+            )
+            
+            // 并行执行删除操作
+            async let sleepDelete = healthStore.deleteObjects(of: sleepType, predicate: sleepPredicate)
+            async let stepsDelete = healthStore.deleteObjects(of: stepsType, predicate: stepsPredicate)
+            
+            let _ = try await sleepDelete
+            let _ = try await stepsDelete
+            
+            // 成功删除，减少日志输出
+            return true
+            
+        } catch {
+            print("❌ 快速批量删除失败: \(error.localizedDescription)")
             await MainActor.run {
                 lastError = error
             }
@@ -1373,15 +1486,37 @@ enum SleepStageType: String, Codable {
 struct StepsData {
     let date: Date
     let hourlySteps: [HourlySteps]
+    let stepsIntervals: [StepsInterval] // 精细时间间隔的步数数据
     
     var totalSteps: Int {
         return hourlySteps.reduce(0) { $0 + $1.steps }
+    }
+    
+    // 向后兼容的初始化方法（只有hourlySteps）
+    init(date: Date, hourlySteps: [HourlySteps]) {
+        self.date = date
+        self.hourlySteps = hourlySteps
+        self.stepsIntervals = [] // 空数组作为默认值
+    }
+    
+    // 新的初始化方法（包含精细间隔）
+    init(date: Date, hourlySteps: [HourlySteps], stepsIntervals: [StepsInterval]) {
+        self.date = date
+        self.hourlySteps = hourlySteps
+        self.stepsIntervals = stepsIntervals
     }
 }
 
 // MARK: - 小时步数
 struct HourlySteps {
     let hour: Int
+    let steps: Int
+    let startTime: Date
+    let endTime: Date
+}
+
+// MARK: - 时间段步数（更精细的粒度）
+struct StepsInterval {
     let steps: Int
     let startTime: Date
     let endTime: Date
@@ -1399,6 +1534,74 @@ extension HKAuthorizationStatus {
             return "已授权"
         @unknown default:
             return "未知"
+        }
+    }
+}
+
+// MARK: - 数据删除扩展
+extension HealthKitManager {
+    
+    // 删除睡眠数据
+    func deleteSleepData() async {
+        guard HKHealthStore.isHealthDataAvailable() else { return }
+        
+        let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!
+        let predicate = HKQuery.predicateForSamples(withStart: Date.distantPast, end: Date(), options: .strictEndDate)
+        
+        let query = HKSampleQuery(sampleType: sleepType, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+            guard let samples = samples, error == nil else { return }
+            
+            self.healthStore.delete(samples) { success, error in
+                print(success ? "✅ 睡眠数据删除成功" : "❌ 睡眠数据删除失败: \(error?.localizedDescription ?? "未知错误")")
+                
+                // 清除缓存的今日睡眠数据
+                if success {
+                    DispatchQueue.main.async {
+                        SyncStateManager.shared.todaySleepData = nil
+                        SyncStateManager.shared.historicalSleepData.removeAll()
+                    }
+                }
+            }
+        }
+        
+        self.healthStore.execute(query)
+    }
+    
+    // 删除步数数据
+    func deleteStepsData() async {
+        guard HKHealthStore.isHealthDataAvailable() else { return }
+        
+        let stepsType = HKObjectType.quantityType(forIdentifier: .stepCount)!
+        let predicate = HKQuery.predicateForSamples(withStart: Date.distantPast, end: Date(), options: .strictEndDate)
+        
+        let query = HKSampleQuery(sampleType: stepsType, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+            guard let samples = samples, error == nil else { return }
+            
+            self.healthStore.delete(samples) { success, error in
+                print(success ? "✅ 步数数据删除成功" : "❌ 步数数据删除失败: \(error?.localizedDescription ?? "未知错误")")
+                
+                // 清除缓存的今日步数数据
+                if success {
+                    DispatchQueue.main.async {
+                        SyncStateManager.shared.todayStepsData = nil
+                        SyncStateManager.shared.historicalStepsData.removeAll()
+                    }
+                }
+            }
+        }
+        
+        self.healthStore.execute(query)
+    }
+    
+    // 删除所有数据
+    func deleteAllData() async {
+        await deleteSleepData()
+        await deleteStepsData()
+        
+        // 确保清理所有缓存
+        DispatchQueue.main.async {
+            SyncStateManager.shared.resetTodayData()
+            SyncStateManager.shared.clearHistoricalData()
         }
     }
 } 

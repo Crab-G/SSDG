@@ -41,10 +41,10 @@ class DataGenerator {
         
         // 🔥 关键修复：睡眠数据只能生成到昨天，步数数据最多到今天当前时间
         let todayStart = calendar.startOfDay(for: now)
-        let yesterdayStart = calendar.date(byAdding: .day, value: -1, to: todayStart)!
+        let _ = calendar.date(byAdding: .day, value: -1, to: todayStart)! // yesterdayStart for reference
         
-        // 睡眠数据的结束日期：昨天（因为今天的睡眠还没发生）
-        let sleepEndDate = yesterdayStart
+        // 睡眠数据的结束日期：今天开始（不包含今天，但包含昨天）
+        let sleepEndDate = todayStart
         
         // 步数数据的结束日期：今天开始（但生成时会检查当前时间）
         let stepsEndDate = todayStart
@@ -130,24 +130,40 @@ class DataGenerator {
         let now = Date()
         let todayStart = calendar.startOfDay(for: now)
         
-        // 🔥 时间边界检查：不能生成未来的数据
-        guard date < todayStart else {
-            // 如果是今天，只生成步数数据
-            let seed = generateSeed(from: user.id + date.timeIntervalSince1970.description)
+        // 🔥 修复时间边界：今日不生成睡眠数据，只生成步数数据
+        if date >= todayStart {
+            print("📅 今日数据生成：只生成步数数据，不生成今晚睡眠数据")
+            
+            // 🔧 改进种子生成：使用更多变化因子
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd"
+            let dateString = dateFormatter.string(from: date)
+            let dayOfYear = Calendar.current.ordinality(of: .day, in: .year, for: date) ?? 1
+            let seedInput = user.id + dateString + String(dayOfYear) + "daily"
+            let seed = generateSeed(from: seedInput)
             var generator = SeededRandomGenerator(seed: UInt64(seed))
             
-            let todaySteps = generateTodayStepsData(
+            // 生成当天步数（到当前时间）
+            let todaySteps = generateCurrentDayStepsData(
+                user: user,
                 date: date,
-                baseline: user.stepsBaseline,
                 currentTime: now,
                 recentStepsData: Array(recentStepsData.suffix(7)),
+                recentSleepData: Array(recentSleepData.suffix(7)),
                 mode: mode,
                 generator: &generator
             )
             
-            return (sleepData: nil, stepsData: todaySteps)
+            return (sleepData: nil, stepsData: todaySteps)  // 今日不返回睡眠数据
         }
-        let seed = generateSeed(from: user.id + date.timeIntervalSince1970.description)
+        
+        // 🔧 改进种子生成：使用更多变化因子
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateString = dateFormatter.string(from: date)
+        let dayOfYear = Calendar.current.ordinality(of: .day, in: .year, for: date) ?? 1
+        let seedInput = user.id + dateString + String(dayOfYear) + "daily"
+        let seed = generateSeed(from: seedInput)
         var generator = SeededRandomGenerator(seed: UInt64(seed))
         
         // 计算最近3天的睡眠时间
@@ -224,7 +240,13 @@ class DataGenerator {
     
     // MARK: - 生成每日睡眠数据
     static func generateDailySleepData(for user: VirtualUser, date: Date, previousData: [SleepData], mode: DataMode = .simple) -> SleepData {
-        let seed = generateSeed(from: user.id + date.timeIntervalSince1970.description)
+        // 🔧 改进种子生成：使用更多变化因子
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateString = dateFormatter.string(from: date)
+        let dayOfYear = Calendar.current.ordinality(of: .day, in: .year, for: date) ?? 1
+        let seedInput = user.id + dateString + String(dayOfYear) + "sleep"
+        let seed = generateSeed(from: seedInput)
         var generator = SeededRandomGenerator(seed: UInt64(seed))
         
         // 计算最近3天的睡眠时间
@@ -249,7 +271,13 @@ class DataGenerator {
     
     // MARK: - 生成每日步数数据
     static func generateDailyStepsData(for user: VirtualUser, date: Date, previousData: [StepsData], mode: DataMode = .simple) -> StepsData {
-        let seed = generateSeed(from: user.id + date.timeIntervalSince1970.description)
+        // 🔧 改进种子生成：使用更多变化因子
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateString = dateFormatter.string(from: date)
+        let dayOfYear = Calendar.current.ordinality(of: .day, in: .year, for: date) ?? 1
+        let seedInput = user.id + dateString + String(dayOfYear) + "steps"
+        let seed = generateSeed(from: seedInput)
         var generator = SeededRandomGenerator(seed: UInt64(seed))
         
         // 计算最近7天的平均步数
@@ -490,135 +518,124 @@ class DataGenerator {
         let totalSleepSeconds = totalSleepHours * 3600
         var allocatedSleepSeconds: TimeInterval = 0
         
-        // 生成主要睡眠段（占总睡眠时间的75-85%）
-        let mainSleepRatio = generator.nextDouble(in: 0.75...0.85)
-        let mainSleepDuration = totalSleepSeconds * mainSleepRatio
-        allocatedSleepSeconds += mainSleepDuration
+        // 生成睡眠中断次数（1-4次，模拟真实的夜间醒来）
+        let interruptionCount = generator.nextInt(in: 1...4)
         
-        // 主睡眠段的开始时间（入睡后10分钟到1小时内）
-        let mainSleepStart = bedTime.addingTimeInterval(generator.nextDouble(in: 600...3600)) // 10分钟到1小时
-        let mainSleepEnd = mainSleepStart.addingTimeInterval(mainSleepDuration)
+        // 计算每个睡眠段的基础时长
+        let segmentCount = interruptionCount + 1
+        let baseSegmentDuration = totalSleepSeconds / Double(segmentCount)
         
-        // 添加主睡眠段
-        stages.append(SleepStage(
-            stage: .light,
-            startTime: mainSleepStart,
-            endTime: mainSleepEnd
-        ))
+        // 入睡延迟（5-30分钟）
+        let sleepLatency = generator.nextDouble(in: 300...1800)
+        var currentTime = bedTime.addingTimeInterval(sleepLatency)
         
-        // 剩余时间分配给其他段落
-        let remainingSleepSeconds = totalSleepSeconds - allocatedSleepSeconds
-        
-        // 生成入睡前的小段睡眠（使用剩余时间的25-40%）
-        let beforeSleepRatio = generator.nextDouble(in: 0.25...0.40)
-        let beforeSleepTotalDuration = remainingSleepSeconds * beforeSleepRatio
-        var beforeSleepUsedDuration: TimeInterval = 0
-        
-        let beforeSleepSegmentCount = generator.nextInt(in: 0...2)
-        for _ in 0..<beforeSleepSegmentCount {
-            let remainingBeforeSleep = beforeSleepTotalDuration - beforeSleepUsedDuration
-            if remainingBeforeSleep <= 0 { break }
+        // 生成睡眠段落
+        for i in 0..<segmentCount {
+            // 添加睡眠段落的随机变化（±30%）
+            let variation = generator.nextDouble(in: -0.3...0.3)
+            let segmentDuration = baseSegmentDuration * (1 + variation)
             
-            let segmentStart = bedTime.addingTimeInterval(generator.nextDouble(in: 0...1800)) // 就寝后30分钟内
-            let maxSegmentDuration = min(remainingBeforeSleep, 600) // 最多10分钟
-            let segmentDuration = min(generator.nextDouble(in: 60...600), maxSegmentDuration)
-            let segmentEnd = segmentStart.addingTimeInterval(segmentDuration)
+            // 确保不超过剩余可分配时间
+            let remainingTime = totalSleepSeconds - allocatedSleepSeconds
+            let actualSegmentDuration = min(segmentDuration, remainingTime)
             
-            // 确保不与主睡眠段重叠
-            if segmentEnd < mainSleepStart {
-                stages.append(SleepStage(
-                    stage: .light,
-                    startTime: segmentStart,
-                    endTime: segmentEnd
-                ))
-                beforeSleepUsedDuration += segmentDuration
-                allocatedSleepSeconds += segmentDuration
-            }
-        }
-        
-        // 生成主睡眠后的"起夜"段落（使用剩余的所有时间）
-        let afterSleepTotalDuration = totalSleepSeconds - allocatedSleepSeconds
-        var afterSleepUsedDuration: TimeInterval = 0
-        
-        let nightActivityCount = generator.nextInt(in: 5...12)
-        var currentTime = mainSleepEnd
-        
-        for _ in 0..<nightActivityCount {
-            let remainingAfterSleep = afterSleepTotalDuration - afterSleepUsedDuration
-            if remainingAfterSleep <= 0 { break }
+            if actualSegmentDuration <= 0 { break }
             
-            // 间隔时间（1-15分钟）
-            let intervalDuration = generator.nextDouble(in: 60...900) // 1-15分钟
-            let segmentStart = currentTime.addingTimeInterval(intervalDuration)
+            let segmentEnd = currentTime.addingTimeInterval(actualSegmentDuration)
             
             // 确保不超过起床时间
-            if segmentStart >= wakeTime {
-                break
-            }
-            
-            // 段落持续时间（从剩余时间中分配）
-            let maxSegmentDuration = min(remainingAfterSleep, 1200) // 最多20分钟
-            let segmentDuration: TimeInterval
-            let randomValue = generator.nextDouble(in: 0...1)
-            
-            if randomValue < 0.3 { // 30%概率：0分钟段（瞬间检测）
-                segmentDuration = 0
-            } else if randomValue < 0.6 { // 30%概率：1-3分钟段（短暂翻身）
-                segmentDuration = min(generator.nextDouble(in: 60...180), maxSegmentDuration)
-            } else if randomValue < 0.85 { // 25%概率：3-10分钟段（起夜、玩手机）
-                segmentDuration = min(generator.nextDouble(in: 180...600), maxSegmentDuration)
-            } else { // 15%概率：10-20分钟段（长时间玩手机）
-                segmentDuration = min(generator.nextDouble(in: 600...1200), maxSegmentDuration)
-            }
-            
-            let segmentEnd = segmentStart.addingTimeInterval(segmentDuration)
-            
-            // 确保不超过起床时间
-            if segmentEnd <= wakeTime {
-                stages.append(SleepStage(
-                    stage: .light,
-                    startTime: segmentStart,
-                    endTime: segmentEnd
-                ))
-                
-                afterSleepUsedDuration += segmentDuration
-                allocatedSleepSeconds += segmentDuration
-                currentTime = segmentEnd
-            } else {
-                // 如果会超过起床时间，调整为刚好到起床时间
-                if segmentStart < wakeTime {
-                    let adjustedDuration = wakeTime.timeIntervalSince(segmentStart)
+            if segmentEnd > wakeTime {
+                let adjustedDuration = wakeTime.timeIntervalSince(currentTime)
+                if adjustedDuration > 60 { // 至少1分钟
                     stages.append(SleepStage(
                         stage: .light,
-                        startTime: segmentStart,
+                        startTime: currentTime,
                         endTime: wakeTime
                     ))
-                    afterSleepUsedDuration += adjustedDuration
-                    allocatedSleepSeconds += adjustedDuration
                 }
                 break
             }
+            
+            stages.append(SleepStage(
+                stage: .light,
+                startTime: currentTime,
+                endTime: segmentEnd
+            ))
+            
+            allocatedSleepSeconds += actualSegmentDuration
+            
+            // 如果不是最后一个段落，添加中断（醒来时间）
+            if i < segmentCount - 1 {
+                // 中断时长（2-30分钟，模拟上厕所、喝水、查看手机等）
+                let interruptionType = generator.nextDouble(in: 0...1)
+                let interruptionDuration: TimeInterval
+                
+                if interruptionType < 0.5 { // 50%：短暂醒来（2-5分钟）
+                    interruptionDuration = generator.nextDouble(in: 120...300)
+                } else if interruptionType < 0.8 { // 30%：中等醒来（5-15分钟）
+                    interruptionDuration = generator.nextDouble(in: 300...900)
+                } else { // 20%：长时间醒来（15-30分钟）
+                    interruptionDuration = generator.nextDouble(in: 900...1800)
+                }
+                
+                currentTime = segmentEnd.addingTimeInterval(interruptionDuration)
+            }
         }
         
-        // 如果还有剩余时间，创建最后一个段落确保总时长准确
-        let finalRemainingDuration = totalSleepSeconds - allocatedSleepSeconds
-        if finalRemainingDuration > 30 { // 如果剩余时间超过30秒
-            let lastSegmentStart = max(currentTime.addingTimeInterval(30), wakeTime.addingTimeInterval(-finalRemainingDuration))
-            let lastSegmentEnd = lastSegmentStart.addingTimeInterval(finalRemainingDuration)
+        // 添加早晨醒来前的短暂睡眠段（模拟赖床）
+        if allocatedSleepSeconds < totalSleepSeconds && currentTime < wakeTime {
+            let remainingTime = wakeTime.timeIntervalSince(currentTime)
+            let lastSegmentProbability = generator.nextDouble(in: 0...1)
             
-            if lastSegmentEnd <= wakeTime {
-                stages.append(SleepStage(
-                    stage: .light,
-                    startTime: lastSegmentStart,
-                    endTime: lastSegmentEnd
-                ))
+            if lastSegmentProbability < 0.7 && remainingTime > 1800 { // 70%概率有赖床段
+                // 最后醒来前的时间（10-30分钟）
+                let prewakeGap = generator.nextDouble(in: 600...1800)
+                let lastSegmentStart = wakeTime.addingTimeInterval(-prewakeGap)
+                
+                if lastSegmentStart > currentTime.addingTimeInterval(300) { // 至少5分钟间隔
+                    // 赖床时长（5-20分钟）
+                    let lazyDuration = generator.nextDouble(in: 300...1200)
+                    let lazyEnd = min(lastSegmentStart.addingTimeInterval(lazyDuration), wakeTime)
+                    
+                    stages.append(SleepStage(
+                        stage: .light,
+                        startTime: lastSegmentStart,
+                        endTime: lazyEnd
+                    ))
+                }
             }
         }
         
         // 按时间排序
         stages.sort { $0.startTime < $1.startTime }
         
-        return stages
+        // 合并过于接近的段落（间隔小于2分钟的）
+        var mergedStages: [SleepStage] = []
+        var i = 0
+        while i < stages.count {
+            if i < stages.count - 1 {
+                let currentStage = stages[i]
+                let nextStage = stages[i + 1]
+                let gap = nextStage.startTime.timeIntervalSince(currentStage.endTime)
+                
+                if gap < 120 { // 间隔小于2分钟，合并
+                    mergedStages.append(SleepStage(
+                        stage: .light,
+                        startTime: currentStage.startTime,
+                        endTime: nextStage.endTime
+                    ))
+                    i += 2 // 跳过下一个段落
+                } else {
+                    mergedStages.append(currentStage)
+                    i += 1
+                }
+            } else {
+                mergedStages.append(stages[i])
+                i += 1
+            }
+        }
+        
+        return mergedStages
     }
     
     // MARK: - 生成单个睡眠周期
@@ -762,8 +779,9 @@ class DataGenerator {
             }
         }
         
-        // 5. 限制在合理范围内
-        totalSteps = max(200, min(25000, totalSteps))
+        // 5. 限制在合理范围内  
+        // 🔧 修复：提高最小步数保护从200到800步
+        totalSteps = max(800, min(25000, totalSteps))
         
         // 6. 生成日内分布（考虑睡眠时间和活动模式）
         let hourlySteps = generateHourlySteps(
@@ -774,9 +792,18 @@ class DataGenerator {
             generator: &generator
         )
         
+        // 生成真实iPhone风格的随机步数记录块
+        let stepsIntervals = generateRealisticiPhoneStepsSamples(
+            date: date,
+            hourlyStepsArray: hourlySteps,
+            sleepData: sleepData,
+            generator: &generator
+        )
+        
         return StepsData(
             date: date,
-            hourlySteps: hourlySteps
+            hourlySteps: hourlySteps,
+            stepsIntervals: stepsIntervals
         )
     }
     
@@ -1272,9 +1299,13 @@ class DataGenerator {
         )
     }
     
-    // MARK: - 生成种子
+    // MARK: - 生成种子（改进版，确保更多变化）
     private static func generateSeed(from string: String) -> Int {
-        return abs(string.hashValue)
+        // 使用多重哈希确保更好的分布
+        let hash1 = abs(string.hashValue)
+        let hash2 = abs(String(string.reversed()).hashValue)
+        let combinedHash = hash1 ^ (hash2 << 16)
+        return abs(combinedHash) % 1000000  // 扩大种子范围
     }
     
     // MARK: - 真实传感器时间模拟
@@ -1325,4 +1356,935 @@ class DataGenerator {
         
         return max(0, Int(noisySteps.rounded()))
     }
-} 
+    
+    // MARK: - 生成当日步数数据（限制到当前时间）
+    static func generateCurrentDayStepsData(
+        user: VirtualUser,
+        date: Date,
+        currentTime: Date,
+        recentStepsData: [StepsData],
+        recentSleepData: [SleepData],
+        mode: DataMode,
+        generator: inout SeededRandomGenerator
+    ) -> StepsData {
+        let calendar = Calendar.current
+        let dateStart = calendar.startOfDay(for: date)
+        
+        // 计算当前时间是今天的第几个小时
+        let currentHour = calendar.component(.hour, from: currentTime)
+        let currentMinute = calendar.component(.minute, from: currentTime)
+        
+        // 生成总步数（基于用户基准）
+        let baseline = user.stepsBaseline
+        let variation = generator.nextDouble(in: -0.15...0.15) // ±15%变化
+        let totalSteps = max(0, Int(Double(baseline) * (1 + variation)))
+        
+        var hourlyStepsArray: [HourlySteps] = []
+        
+        // 为每个小时生成步数（只到当前时间）
+        for hour in 0..<24 {
+            let hourStart = calendar.date(byAdding: .hour, value: hour, to: dateStart)!
+            let hourEnd = calendar.date(byAdding: .hour, value: 1, to: hourStart)!
+            
+            var steps: Int
+            
+            if hour < currentHour || (hour == currentHour && currentMinute >= 30) {
+                // 已经过去的完整小时或当前小时过半
+                steps = generateHourlySteps(
+                    hour: hour,
+                    totalSteps: totalSteps,
+                    recentData: recentStepsData,
+                    mode: mode,
+                    generator: &generator
+                )
+            } else if hour == currentHour {
+                // 当前小时，只生成到当前分钟的步数
+                let fullHourSteps = generateHourlySteps(
+                    hour: hour,
+                    totalSteps: totalSteps,
+                    recentData: recentStepsData,
+                    mode: mode,
+                    generator: &generator
+                )
+                
+                // 按分钟比例计算
+                let minuteRatio = Double(currentMinute) / 60.0
+                steps = Int(Double(fullHourSteps) * minuteRatio)
+            } else {
+                // 未来的小时，步数为0
+                steps = 0
+            }
+            
+            hourlyStepsArray.append(HourlySteps(
+                hour: hour,
+                steps: steps,
+                startTime: hourStart,
+                endTime: hourEnd
+            ))
+        }
+        
+        // 获取最近的睡眠数据（通常是昨晚的）来影响今天的活动模式
+        let relevantSleepData = recentSleepData.last
+        
+        // 生成真实iPhone风格的随机步数记录块（限制到当前时间）
+        let stepsIntervals = generateRealisticiPhoneStepsSamplesForToday(
+            date: date,
+            currentTime: currentTime,
+            hourlyStepsArray: hourlyStepsArray,
+            sleepData: relevantSleepData,
+            generator: &generator
+        )
+        
+        return StepsData(
+            date: date,
+            hourlySteps: hourlyStepsArray,
+            stepsIntervals: stepsIntervals
+        )
+    }
+    
+    // 生成单个小时的步数
+    private static func generateHourlySteps(
+        hour: Int,
+        totalSteps: Int,
+        recentData: [StepsData],
+        mode: DataMode,
+        generator: inout SeededRandomGenerator
+    ) -> Int {
+        // 根据时间段确定活跃度
+        let activityMultiplier: Double
+        
+        switch hour {
+        case 0...5:
+            activityMultiplier = 0.01 // 深夜，几乎无活动
+        case 6...7:
+            activityMultiplier = 0.15 // 早起
+        case 8...11:
+            activityMultiplier = 0.20 // 上午活跃
+        case 12...13:
+            activityMultiplier = 0.12 // lunch时间
+        case 14...17:
+            activityMultiplier = 0.25 // 下午最活跃
+        case 18...20:
+            activityMultiplier = 0.18 // 晚餐后活动
+        case 21...23:
+            activityMultiplier = 0.08 // 晚上减少
+        default:
+            activityMultiplier = 0.05
+        }
+        
+        // 基础步数分配
+        let baseSteps = Int(Double(totalSteps) * activityMultiplier / 24.0)
+        
+        // 添加随机变化 ±30%
+        let variation = generator.nextDouble(in: -0.30...0.30)
+        let steps = max(0, Int(Double(baseSteps) * (1 + variation)))
+        
+        return steps
+    }
+    
+    // 生成真实iPhone风格的随机步数记录块（今日版本 - 限制到当前时间）
+    private static func generateRealisticiPhoneStepsSamplesForToday(
+        date: Date,
+        currentTime: Date,
+        hourlyStepsArray: [HourlySteps],
+        sleepData: SleepData?,
+        generator: inout SeededRandomGenerator
+    ) -> [StepsInterval] {
+        let calendar = Calendar.current
+        let dateStart = calendar.startOfDay(for: date)
+        let currentHour = calendar.component(.hour, from: currentTime)
+        let currentMinute = calendar.component(.minute, from: currentTime)
+        
+        var intervals: [StepsInterval] = []
+        
+        for hourlyStep in hourlyStepsArray {
+            let hour = hourlyStep.hour
+            let hourSteps = hourlyStep.steps
+            
+            // 跳过未来的小时
+            guard hour <= currentHour else { continue }
+            
+            // 跳过0步数的小时
+            guard hourSteps > 0 else { continue }
+            
+            // 检查这个小时是否在睡眠时间内
+            if let sleepData = sleepData, isHourDuringSleep(hour: hour, date: date, sleepData: sleepData) {
+                continue // 睡眠期间跳过步数生成
+            }
+            
+            // 确定这个小时的结束时间
+            let actualHourEnd: Int
+            if hour == currentHour {
+                actualHourEnd = currentMinute
+            } else {
+                actualHourEnd = 60
+            }
+            
+            // 为这个小时生成随机的活动时间段
+            let activityPeriods = generateActivityPeriods(
+                hour: hour,
+                maxMinute: actualHourEnd,
+                totalSteps: hourSteps,
+                sleepData: sleepData,
+                date: date,
+                generator: &generator
+            )
+            
+            // 为每个活动时间段创建步数记录
+            for period in activityPeriods {
+                let startTime = calendar.date(byAdding: .minute, value: hour * 60 + period.startMinute, to: dateStart)!
+                var endTime = calendar.date(byAdding: .minute, value: hour * 60 + period.endMinute, to: dateStart)!
+                
+                // 确保不超过当前时间
+                if hour == currentHour && period.endMinute > currentMinute {
+                    endTime = currentTime
+                }
+                
+                intervals.append(StepsInterval(
+                    steps: period.steps,
+                    startTime: startTime,
+                    endTime: endTime
+                ))
+            }
+        }
+        
+        return intervals
+    }
+    
+    // 获取时间间隔的活跃度系数
+    private static func getIntervalActivityMultiplier(hour: Int, intervalStart: Int) -> Double {
+        // 基础小时活跃度
+        let baseHourMultiplier: Double
+        switch hour {
+        case 0...5:
+            baseHourMultiplier = 0.1 // 深夜
+        case 6...7:
+            baseHourMultiplier = 0.8 // 早起
+        case 8...11:
+            baseHourMultiplier = 1.2 // 上午活跃
+        case 12...13:
+            baseHourMultiplier = 0.9 // 午餐时间
+        case 14...17:
+            baseHourMultiplier = 1.4 // 下午最活跃
+        case 18...20:
+            baseHourMultiplier = 1.1 // 晚餐后
+        case 21...23:
+            baseHourMultiplier = 0.6 // 晚上减少
+        default:
+            baseHourMultiplier = 0.5
+        }
+        
+        // 根据小时内的时间段微调
+        let minuteMultiplier: Double
+        switch intervalStart {
+        case 0...10:
+            minuteMultiplier = 0.9 // 小时开始相对平静
+        case 20...30:
+            minuteMultiplier = 1.2 // 中段活跃
+        case 40...50:
+            minuteMultiplier = 1.1 // 末段准备下一小时
+        default:
+            minuteMultiplier = 1.0
+        }
+        
+        return baseHourMultiplier * minuteMultiplier
+    }
+    
+    // 生成真实iPhone风格的随机步数记录块（历史数据版本）
+    private static func generateRealisticiPhoneStepsSamples(
+        date: Date,
+        hourlyStepsArray: [HourlySteps],
+        sleepData: SleepData?,
+        generator: inout SeededRandomGenerator
+    ) -> [StepsInterval] {
+        let calendar = Calendar.current
+        let dateStart = calendar.startOfDay(for: date)
+        
+        var intervals: [StepsInterval] = []
+        
+        // 如果有睡眠数据，使用智能分配逻辑
+        if let sleepData = sleepData {
+            intervals = generateSleepAwareStepsIntervals(
+                date: date,
+                sleepData: sleepData,
+                hourlyStepsArray: hourlyStepsArray,
+                generator: &generator
+            )
+        } else {
+            // 没有睡眠数据时使用原来的逻辑
+            for hourlyStep in hourlyStepsArray {
+                let hour = hourlyStep.hour
+                let hourSteps = hourlyStep.steps
+                
+                // 跳过0步数的小时
+                guard hourSteps > 0 else { continue }
+                
+                // 为这个小时生成随机的活动时间段
+                let activityPeriods = generateActivityPeriods(
+                    hour: hour,
+                    maxMinute: 60,
+                    totalSteps: hourSteps,
+                    sleepData: nil,
+                    date: date,
+                    generator: &generator
+                )
+                
+                // 为每个活动时间段创建步数记录
+                for period in activityPeriods {
+                    let startTime = calendar.date(byAdding: .minute, value: hour * 60 + period.startMinute, to: dateStart)!
+                    let endTime = calendar.date(byAdding: .minute, value: hour * 60 + period.endMinute, to: dateStart)!
+                    
+                    intervals.append(StepsInterval(
+                        steps: period.steps,
+                        startTime: startTime,
+                        endTime: endTime
+                    ))
+                }
+            }
+        }
+        
+        // 历史数据生成完成
+        return intervals
+    }
+    
+    // 活动时间段结构
+    private struct ActivityPeriod {
+        let startMinute: Int
+        let endMinute: Int
+        let steps: Int
+    }
+    
+    // 为一个小时生成随机的活动时间段（模拟真实iPhone记录）
+    private static func generateActivityPeriods(
+        hour: Int,
+        maxMinute: Int,
+        totalSteps: Int,
+        sleepData: SleepData?,
+        date: Date,
+        generator: inout SeededRandomGenerator
+    ) -> [ActivityPeriod] {
+        guard totalSteps > 0 && maxMinute > 0 else { return [] }
+        
+        // 获取考虑睡眠边界的有效活动时间范围
+        let validRange = getValidActivityRange(
+            hour: hour,
+            maxMinute: maxMinute,
+            date: date,
+            sleepData: sleepData
+        )
+        
+        // 如果没有有效活动时间，返回空数组
+        guard validRange.endMinute > validRange.startMinute else { return [] }
+        
+        var periods: [ActivityPeriod] = []
+        var remainingSteps = totalSteps
+        var currentMinute = validRange.startMinute
+        let maxValidMinute = validRange.endMinute
+        
+        // 根据时间段确定活动模式（考虑睡眠影响）
+        let activityPattern = getHourActivityPattern(hour: hour, sleepData: sleepData)
+        
+        while remainingSteps > 0 && currentMinute < maxValidMinute {
+            // 决定静止时间（没有步数记录的时间）
+            let restDuration = generateRestDuration(
+                hour: hour,
+                pattern: activityPattern,
+                generator: &generator
+            )
+            
+            currentMinute += restDuration
+            if currentMinute >= maxValidMinute { break }
+            
+            // 生成一个活动时间段
+            let activityDuration = generateActivityDuration(
+                pattern: activityPattern,
+                generator: &generator
+            )
+            
+            let endMinute = min(currentMinute + activityDuration, maxValidMinute)
+            
+            // 分配步数给这个时间段
+            let stepsForPeriod = generateStepsForPeriod(
+                remainingSteps: remainingSteps,
+                duration: endMinute - currentMinute,
+                pattern: activityPattern,
+                generator: &generator
+            )
+            
+            if stepsForPeriod > 0 {
+                periods.append(ActivityPeriod(
+                    startMinute: currentMinute,
+                    endMinute: endMinute,
+                    steps: stepsForPeriod
+                ))
+                
+                remainingSteps -= stepsForPeriod
+            }
+            
+            currentMinute = endMinute
+        }
+        
+        // 如果还有剩余步数，添加到最后一个时间段或创建新时间段
+        if remainingSteps > 0 && !periods.isEmpty {
+            let lastIndex = periods.count - 1
+            periods[lastIndex] = ActivityPeriod(
+                startMinute: periods[lastIndex].startMinute,
+                endMinute: periods[lastIndex].endMinute,
+                steps: periods[lastIndex].steps + remainingSteps
+            )
+        }
+        
+        return periods
+    }
+    
+    // 活动模式枚举
+    private enum HourActivityPattern {
+        case inactive    // 深夜/休息
+        case light      // 轻度活动
+        case moderate   // 中度活动
+        case active     // 活跃时段
+        case commute    // 通勤时段
+    }
+    
+    // 获取小时的活动模式（考虑睡眠数据）
+    private static func getHourActivityPattern(hour: Int, sleepData: SleepData?) -> HourActivityPattern {
+        // 如果有睡眠数据，检查是否是睡前或起床时间
+        if let sleepData = sleepData {
+            let calendar = Calendar.current
+            let bedHour = calendar.component(.hour, from: sleepData.bedTime)
+            let wakeHour = calendar.component(.hour, from: sleepData.wakeTime)
+            
+            // 睡前一小时：活动量减少
+            if (bedHour > 0 && hour == bedHour - 1) || 
+               (bedHour == 0 && hour == 23) {
+                return .light
+            }
+            
+            // 睡觉的那个小时：很少活动
+            if hour == bedHour {
+                return .inactive
+            }
+            
+            // 起床的那个小时：逐渐活跃
+            if hour == wakeHour {
+                return .light
+            }
+            
+            // 起床后一小时：正常活跃
+            if hour == wakeHour + 1 {
+                return .moderate
+            }
+        }
+        
+        // 默认的时间模式
+        switch hour {
+        case 0...5, 23:
+            return .inactive
+        case 6...7:
+            return .light
+        case 8...9, 17...19: // 通勤时间
+            return .commute
+        case 10...11, 14...16:
+            return .active
+        case 12...13, 20...22:
+            return .moderate
+        default:
+            return .light
+        }
+    }
+    
+    // 生成静止时间（分钟）
+    private static func generateRestDuration(
+        hour: Int,
+        pattern: HourActivityPattern,
+        generator: inout SeededRandomGenerator
+    ) -> Int {
+        switch pattern {
+        case .inactive:
+            return generator.nextInt(in: 15...45) // 长时间静止
+        case .light:
+            return generator.nextInt(in: 8...20)
+        case .moderate:
+            return generator.nextInt(in: 5...15)
+        case .active:
+            return generator.nextInt(in: 2...8)
+        case .commute:
+            return generator.nextInt(in: 1...5) // 通勤时很少静止
+        }
+    }
+    
+    // 生成活动时间段长度（分钟）
+    private static func generateActivityDuration(
+        pattern: HourActivityPattern,
+        generator: inout SeededRandomGenerator
+    ) -> Int {
+        switch pattern {
+        case .inactive:
+            return generator.nextInt(in: 1...3) // 短暂活动，如上厕所
+        case .light:
+            return generator.nextInt(in: 2...8)
+        case .moderate:
+            return generator.nextInt(in: 3...12)
+        case .active:
+            return generator.nextInt(in: 5...18) // 较长的活动，如散步
+        case .commute:
+            return generator.nextInt(in: 8...25) // 通勤活动较长
+        }
+    }
+    
+    // 为时间段分配步数
+    private static func generateStepsForPeriod(
+        remainingSteps: Int,
+        duration: Int,
+        pattern: HourActivityPattern,
+        generator: inout SeededRandomGenerator
+    ) -> Int {
+        guard remainingSteps > 0 && duration > 0 else { return 0 }
+        
+        // 根据活动模式确定步数密度（步数/分钟）
+        let stepsPerMinute: Int
+        switch pattern {
+        case .inactive:
+            stepsPerMinute = generator.nextInt(in: 5...20)
+        case .light:
+            stepsPerMinute = generator.nextInt(in: 15...45)
+        case .moderate:
+            stepsPerMinute = generator.nextInt(in: 25...70)
+        case .active:
+            stepsPerMinute = generator.nextInt(in: 40...100)
+        case .commute:
+            stepsPerMinute = generator.nextInt(in: 35...90)
+        }
+        
+        let targetSteps = stepsPerMinute * duration
+        
+        // 确保不超过剩余步数，并添加随机变化
+        let maxSteps = min(targetSteps, remainingSteps)
+        let variation = generator.nextDouble(in: 0.7...1.3)
+        
+        return max(1, min(maxSteps, Int(Double(targetSteps) * variation)))
+    }
+    
+    // 检查指定小时是否在睡眠时间内
+    private static func isHourDuringSleep(hour: Int, date: Date, sleepData: SleepData) -> Bool {
+        let calendar = Calendar.current
+        
+        // 获取睡眠时间的小时数
+        let bedHour = calendar.component(.hour, from: sleepData.bedTime)
+        let wakeHour = calendar.component(.hour, from: sleepData.wakeTime)
+        
+        // 如果睡眠跨越午夜（床时间的小时数 > 起床时间的小时数）
+        if bedHour > wakeHour {
+            // 睡眠时间跨越了午夜，如 23:00 睡觉，7:00 起床
+            // 睡眠小时：23, 0, 1, 2, 3, 4, 5, 6
+            return hour >= bedHour || hour < wakeHour
+        } else if bedHour < wakeHour {
+            // 睡眠时间在同一天内（少见情况，如午觉 13:00-15:00）
+            return hour >= bedHour && hour < wakeHour
+        } else {
+            // bedHour == wakeHour，睡眠不到1小时，认为不影响步数
+            return false
+        }
+    }
+    
+    // 获取小时内的有效活动时间范围（考虑睡眠边界）
+    private static func getValidActivityRange(
+        hour: Int,
+        maxMinute: Int,
+        date: Date,
+        sleepData: SleepData?
+    ) -> (startMinute: Int, endMinute: Int) {
+        guard let sleepData = sleepData else {
+            return (startMinute: 0, endMinute: maxMinute)
+        }
+        
+        let calendar = Calendar.current
+        
+        var validStart = 0
+        var validEnd = maxMinute
+        
+        // 检查睡觉时间边界
+        let bedTimeHour = calendar.component(.hour, from: sleepData.bedTime)
+        let bedTimeMinute = calendar.component(.minute, from: sleepData.bedTime)
+        
+        if hour == bedTimeHour {
+            // 如果是睡觉的那个小时，活动应该在睡觉时间前停止
+            validEnd = min(validEnd, bedTimeMinute)
+        }
+        
+        // 检查起床时间边界
+        let wakeTimeHour = calendar.component(.hour, from: sleepData.wakeTime)
+        let wakeTimeMinute = calendar.component(.minute, from: sleepData.wakeTime)
+        
+        if hour == wakeTimeHour {
+            // 如果是起床的那个小时，活动应该在起床时间后开始
+            validStart = max(validStart, wakeTimeMinute)
+        }
+        
+        // 确保有效范围
+        if validStart >= validEnd {
+            return (startMinute: 0, endMinute: 0) // 无有效时间
+        }
+        
+        return (startMinute: validStart, endMinute: validEnd)
+    }
+    
+    // 基于睡眠数据的智能步数分配
+    private static func generateSleepAwareStepsIntervals(
+        date: Date,
+        sleepData: SleepData,
+        hourlyStepsArray: [HourlySteps],
+        generator: inout SeededRandomGenerator
+    ) -> [StepsInterval] {
+        let calendar = Calendar.current
+        let _ = calendar.startOfDay(for: date)
+        
+        // 计算总步数
+        let totalSteps = hourlyStepsArray.reduce(0) { $0 + $1.steps }
+        guard totalSteps > 0 else { return [] }
+        
+        // Debug: 基于睡眠数据分配步数
+        
+        var intervals: [StepsInterval] = []
+        
+        // 1. 为睡眠期间分配少量步数（起夜/翻身）
+        let sleepStepsIntervals = generateSleepPeriodSteps(
+            date: date,
+            sleepData: sleepData,
+            totalSteps: totalSteps,
+            generator: &generator
+        )
+        
+        let sleepStepsUsed = sleepStepsIntervals.reduce(0) { $0 + $1.steps }
+        intervals.append(contentsOf: sleepStepsIntervals)
+        
+        // 睡眠期间步数分配完成
+        
+        // 2. 剩余步数分配到清醒时间
+        let remainingSteps = totalSteps - sleepStepsUsed
+        if remainingSteps > 0 {
+            let wakeStepsIntervals = generateWakePeriodSteps(
+                date: date,
+                sleepData: sleepData,
+                remainingSteps: remainingSteps,
+                generator: &generator
+            )
+            
+            intervals.append(contentsOf: wakeStepsIntervals)
+            // 清醒期间步数分配完成
+        }
+        
+        // 按时间排序
+        intervals.sort { $0.startTime < $1.startTime }
+        
+        return intervals
+    }
+    
+    // 生成睡眠期间的步数（起夜/翻身）
+    private static func generateSleepPeriodSteps(
+        date: Date,
+        sleepData: SleepData,
+        totalSteps: Int,
+        generator: inout SeededRandomGenerator
+    ) -> [StepsInterval] {
+        var intervals: [StepsInterval] = []
+        
+        // 睡眠期间分配总步数的3-8%作为起夜步数
+        let sleepStepsRatio = generator.nextDouble(in: 0.03...0.08)
+        let maxSleepSteps = Int(Double(totalSteps) * sleepStepsRatio)
+        
+        guard maxSleepSteps > 0 else { return [] }
+        
+        // 睡眠期间最多分配步数
+        
+        // 基于基本睡眠时间分配，不依赖详细睡眠阶段
+        let sleepStart = sleepData.bedTime
+        let sleepEnd = sleepData.wakeTime
+        let sleepDuration = sleepEnd.timeIntervalSince(sleepStart)
+        
+        // 计算当天的睡眠时间段（处理跨夜情况）
+        let calendar = Calendar.current
+        var actualSleepStart = sleepStart
+        var actualSleepEnd = sleepEnd
+        
+        // 如果是跨夜睡眠，调整到当天范围内
+        if sleepEnd < sleepStart {
+            // 跨夜情况：睡眠从前一天晚上开始，到当天早上结束
+            let dayStart = calendar.startOfDay(for: date)
+            actualSleepStart = max(sleepStart, dayStart)
+            actualSleepEnd = min(sleepEnd.addingTimeInterval(24*3600), dayStart.addingTimeInterval(24*3600))
+        }
+        
+        // 在睡眠期间生成2-4次起夜活动
+        let nighttimeEvents = generator.nextInt(in: 2...4)
+        var stepsUsed = 0
+        
+        for _ in 0..<nighttimeEvents {
+            guard stepsUsed < maxSleepSteps else { break }
+            
+            // 随机选择起夜时间（避免刚入睡和即将醒来的时间）
+            let timeRatio = generator.nextDouble(in: 0.2...0.8) // 在睡眠时间的20%-80%范围内
+            let nighttimeStart = actualSleepStart.addingTimeInterval(sleepDuration * timeRatio)
+            
+            // 确保时间在当天范围内
+            let dayStart = calendar.startOfDay(for: date)
+            let dayEnd = dayStart.addingTimeInterval(24*3600)
+            guard nighttimeStart >= dayStart && nighttimeStart < dayEnd else { continue }
+            
+            // 起夜步数：3-15步
+            let nighttimeSteps = min(
+                generator.nextInt(in: 3...15),
+                maxSleepSteps - stepsUsed
+            )
+            
+            if nighttimeSteps > 0 {
+                // 起夜活动持续时间：30秒到3分钟
+                let nighttimeDuration = generator.nextDouble(in: 30...180)
+                let nighttimeEnd = nighttimeStart.addingTimeInterval(nighttimeDuration)
+                
+                // 确保不超出睡眠时间和当天范围
+                let actualEnd = min(nighttimeEnd, min(actualSleepEnd, dayEnd))
+                
+                if actualEnd > nighttimeStart {
+                    intervals.append(StepsInterval(
+                        steps: nighttimeSteps,
+                        startTime: nighttimeStart,
+                        endTime: actualEnd
+                    ))
+                    
+                    stepsUsed += nighttimeSteps
+                    // 起夜活动记录
+                }
+            }
+        }
+        
+        // 实际睡眠期间分配步数完成
+        return intervals
+    }
+    
+    // 生成清醒期间的步数
+    private static func generateWakePeriodSteps(
+        date: Date,
+        sleepData: SleepData,
+        remainingSteps: Int,
+        generator: inout SeededRandomGenerator
+    ) -> [StepsInterval] {
+        let calendar = Calendar.current
+        let dateStart = calendar.startOfDay(for: date)
+        let _ = calendar.date(byAdding: .day, value: 1, to: dateStart)!
+        
+        var intervals: [StepsInterval] = []
+        var stepsToDistribute = remainingSteps
+        
+        // 获取清醒时间段
+        let wakePeriods = getWakePeriods(date: date, sleepData: sleepData)
+        
+        // 清醒期间步数分配开始
+        
+        // 计算所有时间段的权重比例
+        var periodRatios: [(period: WakePeriod, ratio: Double)] = []
+        var totalRatio = 0.0
+        
+        for wakePeriod in wakePeriods {
+            let ratio = getWakePeriodStepsRatio(
+                startTime: wakePeriod.start,
+                endTime: wakePeriod.end,
+                sleepData: sleepData
+            )
+            periodRatios.append((period: wakePeriod, ratio: ratio))
+            totalRatio += ratio
+        }
+        
+        // 按归一化比例分配步数
+        for (_, periodInfo) in periodRatios.enumerated() {
+            guard stepsToDistribute > 0 else { break }
+            
+            let normalizedRatio = totalRatio > 0 ? periodInfo.ratio / totalRatio : 1.0 / Double(wakePeriods.count)
+            let targetStepsForPeriod = Int(Double(remainingSteps) * normalizedRatio)
+            let actualStepsForPeriod = min(targetStepsForPeriod, stepsToDistribute)
+            
+            // 时间段步数分配
+            
+            if actualStepsForPeriod > 0 {
+                // 在这个清醒时间段内生成活动间隔
+                let periodIntervals = generateWakePeriodActivityIntervals(
+                    startTime: periodInfo.period.start,
+                    endTime: periodInfo.period.end,
+                    totalSteps: actualStepsForPeriod,
+                    sleepData: sleepData,
+                    generator: &generator
+                )
+                
+                intervals.append(contentsOf: periodIntervals)
+                stepsToDistribute -= actualStepsForPeriod
+            }
+        }
+        
+        return intervals
+    }
+    
+    // 清醒时间段结构
+    private struct WakePeriod {
+        let start: Date
+        let end: Date
+    }
+    
+    // 获取清醒时间段
+    private static func getWakePeriods(date: Date, sleepData: SleepData) -> [WakePeriod] {
+        let calendar = Calendar.current
+        let dayStart = calendar.startOfDay(for: date)
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)!
+        
+        var wakePeriods: [WakePeriod] = []
+        
+        // 获取睡眠时间在当天的实际时间点
+        let bedTime = sleepData.bedTime
+        let wakeTime = sleepData.wakeTime
+        
+        // 分析清醒时间段
+        
+        // 判断是否跨夜睡眠（通过小时判断更准确）
+        let bedHour = calendar.component(.hour, from: bedTime)
+        let wakeHour = calendar.component(.hour, from: wakeTime)
+        
+        if bedHour > 18 && wakeHour < 12 {  // 跨夜睡眠：晚上6点后睡，中午12点前醒
+            // 清醒时间段：起床时间到睡觉时间
+            let actualWakeTime = wakeTime
+            let actualBedTime = bedTime
+            
+            // 确保时间在当天范围内
+            let wakeTimeInDay = max(actualWakeTime, dayStart)
+            let bedTimeInDay = min(actualBedTime, dayEnd)
+            
+            if wakeTimeInDay < bedTimeInDay {
+                wakePeriods.append(WakePeriod(
+                    start: wakeTimeInDay,
+                    end: bedTimeInDay
+                ))
+                // 清醒时间段设置
+            }
+        } else {
+            // 非跨夜睡眠：在同一天内睡觉和起床
+            // 清醒时间段1：当天开始到睡觉时间
+            if bedTime > dayStart {
+                wakePeriods.append(WakePeriod(
+                    start: dayStart,
+                    end: bedTime
+                ))
+                // 清醒时间段1设置
+            }
+            
+            // 清醒时间段2：起床时间到当天结束
+            if wakeTime < dayEnd {
+                wakePeriods.append(WakePeriod(
+                    start: wakeTime,
+                    end: dayEnd
+                ))
+                // 清醒时间段2设置
+            }
+        }
+        
+        return wakePeriods
+    }
+    
+    // 获取清醒时间段的步数分配比例
+    private static func getWakePeriodStepsRatio(
+        startTime: Date,
+        endTime: Date,
+        sleepData: SleepData
+    ) -> Double {
+        let duration = endTime.timeIntervalSince(startTime)
+        let hours = duration / 3600.0
+        
+        let calendar = Calendar.current
+        let startHour = calendar.component(.hour, from: startTime)
+        let endHour = calendar.component(.hour, from: endTime)
+        
+        // 根据时间段给出不同的活跃度权重
+        var activityWeight = 1.0
+        
+        // 早晨时间段（起床后）
+        if startTime == sleepData.wakeTime {
+            activityWeight *= 0.8 // 刚起床相对较少活动
+        }
+        
+        // 夜晚时间段（睡前）
+        if endTime == sleepData.bedTime {
+            activityWeight *= 0.7 // 睡前活动减少
+        }
+        
+        // 根据小时调整权重
+        let midHour = (startHour + endHour) / 2
+        switch midHour {
+        case 6...8:
+            activityWeight *= 0.9 // 早晨
+        case 9...11:
+            activityWeight *= 1.2 // 上午活跃
+        case 12...13:
+            activityWeight *= 1.0 // 中午
+        case 14...17:
+            activityWeight *= 1.3 // 下午最活跃
+        case 18...20:
+            activityWeight *= 1.1 // 傍晚
+        case 21...23:
+            activityWeight *= 0.8 // 晚上
+        default:
+            activityWeight *= 0.5 // 深夜/凌晨
+        }
+        
+        // 基础比例：时间长度 * 活跃度权重
+        let rawRatio = activityWeight * hours
+        // 时间段权重分析完成
+        
+        return rawRatio // 不在这里归一化，在上层方法中统一处理
+    }
+    
+    // 在清醒时间段内生成活动间隔
+    private static func generateWakePeriodActivityIntervals(
+        startTime: Date,
+        endTime: Date,
+        totalSteps: Int,
+        sleepData: SleepData,
+        generator: inout SeededRandomGenerator
+    ) -> [StepsInterval] {
+        var intervals: [StepsInterval] = []
+        var remainingSteps = totalSteps
+        var currentTime = startTime
+        
+        while remainingSteps > 0 && currentTime < endTime {
+            // 生成休息时间
+            let restDuration = generator.nextDouble(in: 2...15) * 60 // 2-15分钟休息
+            currentTime = currentTime.addingTimeInterval(restDuration)
+            
+            if currentTime >= endTime { break }
+            
+            // 生成活动时间
+            let activityDuration = generator.nextDouble(in: 1...20) * 60 // 1-20分钟活动
+            let activityEnd = min(currentTime.addingTimeInterval(activityDuration), endTime)
+            
+            // 分配步数 - 至少1步，最多剩余步数的30%或全部剩余步数（取较小值）
+            let maxPossibleSteps = max(1, Int(Double(remainingSteps) * 0.3))
+            let upperBound = min(remainingSteps, maxPossibleSteps)
+            
+            let stepsForActivity = if upperBound >= 1 {
+                generator.nextInt(in: 1...upperBound)
+            } else {
+                remainingSteps // 如果计算出现问题，分配所有剩余步数
+            }
+            
+            if stepsForActivity > 0 {
+                intervals.append(StepsInterval(
+                    steps: stepsForActivity,
+                    startTime: currentTime,
+                    endTime: activityEnd
+                ))
+                
+                remainingSteps -= stepsForActivity
+            }
+            
+            currentTime = activityEnd
+        }
+        
+        return intervals
+    }
+}
