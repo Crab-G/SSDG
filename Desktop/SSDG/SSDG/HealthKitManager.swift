@@ -145,7 +145,7 @@ class HealthKitManager: ObservableObject {
     }
     
     // MARK: - 写入睡眠数据
-    func writeSleepData(_ sleepData: [SleepData], mode: DataMode = .simple) async -> Bool {
+    func writeSleepData(_ sleepData: [SleepData], mode: DataMode = .simple, user: VirtualUser? = nil) async -> Bool {
         guard isAuthorized else {
             print("❌ HealthKit未授权")
             return false
@@ -175,7 +175,7 @@ class HealthKitManager: ObservableObject {
             
             for sleep in uniqueSleepData {
                 // 创建睡眠样本
-                let sleepSamples = createSleepSamples(from: sleep, mode: mode)
+                let sleepSamples = createSleepSamples(from: sleep, mode: mode, user: user)
                 samples.append(contentsOf: sleepSamples)
             }
             
@@ -208,7 +208,7 @@ class HealthKitManager: ObservableObject {
     }
     
     // MARK: - 写入步数数据
-    func writeStepsData(_ stepsData: [StepsData]) async -> Bool {
+    func writeStepsData(_ stepsData: [StepsData], user: VirtualUser? = nil) async -> Bool {
         guard isAuthorized else {
             print("❌ HealthKit未授权")
             return false
@@ -223,7 +223,7 @@ class HealthKitManager: ObservableObject {
             
             for steps in stepsData {
                 // 创建步数样本
-                let stepsSamples = createStepsSamples(from: steps)
+                let stepsSamples = createStepsSamples(from: steps, user: user)
                 samples.append(contentsOf: stepsSamples)
             }
             
@@ -301,8 +301,8 @@ class HealthKitManager: ObservableObject {
             importStatusMessage = "写入新数据..."
         }
         
-        let sleepSuccess = await writeSleepData(sleepData, mode: mode)
-        let stepsSuccess = await writeStepsData(stepsData)
+        let sleepSuccess = await writeSleepData(sleepData, mode: mode, user: user)
+        let stepsSuccess = await writeStepsData(stepsData, user: user)
         
         let overallSuccess = sleepSuccess && stepsSuccess
         
@@ -513,20 +513,61 @@ class HealthKitManager: ObservableObject {
     }
     
     // MARK: - 创建iPhone设备对象
-    private func createiPhoneDevice() -> HKDevice {
-        let deviceModel = getRealisticiPhoneModel()
-        let systemVersion = getRealisticiOSVersion()
+    private func createiPhoneDevice(user: VirtualUser? = nil) -> HKDevice {
+        // 如果提供了用户，使用用户的设备信息
+        if let user = user {
+            let modelInfo = getModelInfo(for: user.deviceModel)
+            let systemVersion = getRealisticiOSVersion()
+            
+            return HKDevice(
+                name: user.deviceModel,                              // 用户的设备型号
+                manufacturer: "Apple Inc.",
+                model: modelInfo.modelIdentifier,                    // 对应的型号标识符
+                hardwareVersion: modelInfo.hardwareVersion,         // 硬件版本
+                firmwareVersion: systemVersion,                      // 系统版本
+                softwareVersion: systemVersion,                      // 软件版本
+                localIdentifier: user.deviceUUID,                    // 用户的设备UUID
+                udiDeviceIdentifier: nil
+            )
+        } else {
+            // 使用默认的随机设备信息
+            let deviceModel = getRealisticiPhoneModel()
+            let systemVersion = getRealisticiOSVersion()
+            
+            return HKDevice(
+                name: deviceModel.displayName,                      // 真实iPhone型号名称
+                manufacturer: "Apple Inc.",
+                model: deviceModel.modelIdentifier,                 // 真实型号标识符
+                hardwareVersion: deviceModel.hardwareVersion,       // 硬件版本
+                firmwareVersion: systemVersion,                      // 系统版本
+                softwareVersion: systemVersion,                      // 软件版本
+                localIdentifier: generateRealisticDeviceID(),       // 真实风格设备ID
+                udiDeviceIdentifier: nil
+            )
+        }
+    }
+    
+    // MARK: - 根据设备名称获取型号信息
+    private func getModelInfo(for deviceName: String) -> (modelIdentifier: String, hardwareVersion: String) {
+        // 映射用户友好的设备名称到技术标识符
+        let modelMappings: [String: (modelIdentifier: String, hardwareVersion: String)] = [
+            "iPhone 15 Pro Max": (modelIdentifier: "iPhone16,2", hardwareVersion: "iPhone16,2"),
+            "iPhone 15 Pro": (modelIdentifier: "iPhone16,1", hardwareVersion: "iPhone16,1"),
+            "iPhone 15 Plus": (modelIdentifier: "iPhone15,5", hardwareVersion: "iPhone15,5"),
+            "iPhone 15": (modelIdentifier: "iPhone15,4", hardwareVersion: "iPhone15,4"),
+            "iPhone 14 Pro Max": (modelIdentifier: "iPhone15,3", hardwareVersion: "iPhone15,3"),
+            "iPhone 14 Pro": (modelIdentifier: "iPhone15,2", hardwareVersion: "iPhone15,2"),
+            "iPhone 14 Plus": (modelIdentifier: "iPhone14,8", hardwareVersion: "iPhone14,8"),
+            "iPhone 14": (modelIdentifier: "iPhone14,7", hardwareVersion: "iPhone14,7"),
+            "iPhone 13 Pro Max": (modelIdentifier: "iPhone14,3", hardwareVersion: "iPhone14,3"),
+            "iPhone 13 Pro": (modelIdentifier: "iPhone14,2", hardwareVersion: "iPhone14,2"),
+            "iPhone 13": (modelIdentifier: "iPhone14,5", hardwareVersion: "iPhone14,5"),
+            "iPhone 13 mini": (modelIdentifier: "iPhone14,4", hardwareVersion: "iPhone14,4"),
+            "iPhone SE (3rd generation)": (modelIdentifier: "iPhone14,6", hardwareVersion: "iPhone14,6")
+        ]
         
-        return HKDevice(
-            name: deviceModel.displayName,                        // 真实iPhone型号名称
-            manufacturer: "Apple Inc.",
-            model: deviceModel.modelIdentifier,                   // 真实型号标识符
-            hardwareVersion: deviceModel.hardwareVersion,        // 硬件版本
-            firmwareVersion: systemVersion,                       // 系统版本
-            softwareVersion: systemVersion,                       // 软件版本
-            localIdentifier: generateRealisticDeviceID(),        // 真实风格设备ID
-            udiDeviceIdentifier: nil
-        )
+        // 如果找到映射，返回对应的信息；否则返回默认值
+        return modelMappings[deviceName] ?? (modelIdentifier: "iPhone14,7", hardwareVersion: "iPhone14,7")
     }
     
     // MARK: - 获取真实iPhone型号信息
@@ -577,13 +618,13 @@ class HealthKitManager: ObservableObject {
     }
     
     // MARK: - 生成iPhone原生数据元数据
-    private func createiPhoneMetadata(extraData: [String: Any] = [:]) -> [String: Any] {
+    private func createiPhoneMetadata(extraData: [String: Any] = [:], user: VirtualUser? = nil) -> [String: Any] {
         var metadata: [String: Any] = [
             HKMetadataKeyWasUserEntered: false,                    // 标记为自动记录
             HKMetadataKeyDeviceName: "iPhone",                     // 设备名称（关键）
             HKMetadataKeyDeviceManufacturerName: "Apple Inc.",     // 制造商
-            HKMetadataKeyDeviceSerialNumber: generateRealisticSerialNumber(), // 真实风格序列号
-            HKMetadataKeyExternalUUID: UUID().uuidString,         // 外部UUID
+            HKMetadataKeyDeviceSerialNumber: user?.deviceSerialNumber ?? generateRealisticSerialNumber(), // 使用用户的序列号
+            HKMetadataKeyExternalUUID: user?.deviceUUID ?? UUID().uuidString, // 使用用户的UUID
             // 模拟Apple Health应用的标识（使用有效的自定义键名）
             "AppleDeviceSource": NSNumber(value: true),                   // Apple设备标识
             "DeviceCalibrated": NSNumber(value: true),                    // 设备已校准
@@ -620,26 +661,45 @@ class HealthKitManager: ObservableObject {
     }
     
     // MARK: - 改进的创建睡眠样本（完全模拟iPhone数据）
-    private func createSleepSamples(from sleepData: SleepData, mode: DataMode = .simple) -> [HKCategorySample] {
+    private func createSleepSamples(from sleepData: SleepData, mode: DataMode = .simple, user: VirtualUser? = nil) -> [HKCategorySample] {
         var samples: [HKCategorySample] = []
         
         // 使用统一的iPhone元数据和设备对象
-        let metadata = createiPhoneMetadata()
-        let device = createiPhoneDevice()
+        let metadata = createiPhoneMetadata(user: user)
+        let device = createiPhoneDevice(user: user)
         
         switch mode {
         case .simple:
-            // 简易模式：生成分段的卧床时间样本
+            // 🔥 新方案：为每个睡眠段创建独立的样本，模拟iPhone的睡眠检测
+            // 这样可以在Health应用中显示多个睡眠段（如手机使用检测）
             for stage in sleepData.sleepStages {
-                let inBedSample = HKCategorySample(
-                    type: HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
-                    value: HKCategoryValueSleepAnalysis.inBed.rawValue,
-                    start: stage.startTime,
-                    end: stage.endTime,
-                    device: device,
-                    metadata: metadata
-                )
-                samples.append(inBedSample)
+                // 根据stage类型创建不同的样本
+                if stage.stage == .awake && stage.duration < 3600 {
+                    // 短暂的清醒段（小于1小时）可能是手机使用
+                    // 跳过或创建清醒样本
+                    if stage.duration >= 60 { // 至少1分钟
+                        let awakeSample = HKCategorySample(
+                            type: HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
+                            value: HKCategoryValueSleepAnalysis.awake.rawValue,
+                            start: stage.startTime,
+                            end: stage.endTime,
+                            device: device,
+                            metadata: metadata
+                        )
+                        samples.append(awakeSample)
+                    }
+                } else {
+                    // 睡眠段创建为卧床时间
+                    let inBedSample = HKCategorySample(
+                        type: HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
+                        value: HKCategoryValueSleepAnalysis.inBed.rawValue,
+                        start: stage.startTime,
+                        end: stage.endTime,
+                        device: device,
+                        metadata: metadata
+                    )
+                    samples.append(inBedSample)
+                }
             }
             
         case .wearableDevice:
@@ -685,12 +745,12 @@ class HealthKitManager: ObservableObject {
     }
     
     // MARK: - 改进的创建步数样本（增强数据标识）
-    private func createStepsSamples(from stepsData: StepsData) -> [HKQuantitySample] {
+    private func createStepsSamples(from stepsData: StepsData, user: VirtualUser? = nil) -> [HKQuantitySample] {
         var samples: [HKQuantitySample] = []
         
         // 使用统一的iPhone元数据和设备对象
-        let metadata = createiPhoneMetadata()
-        let device = createiPhoneDevice()
+        let metadata = createiPhoneMetadata(user: user)
+        let device = createiPhoneDevice(user: user)
         
         // 优先使用精细间隔数据（如果有的话）
         if !stepsData.stepsIntervals.isEmpty {
@@ -756,7 +816,7 @@ class HealthKitManager: ObservableObject {
             importStatusMessage = "导入睡眠数据..."
         }
         
-        let sleepSuccess = await writeSleepData(sleepData, mode: mode)
+        let sleepSuccess = await writeSleepData(sleepData, mode: mode, user: user)
         
         // 同步步数数据
         await MainActor.run {
@@ -764,7 +824,7 @@ class HealthKitManager: ObservableObject {
             importStatusMessage = "导入步数数据..."
         }
         
-        let stepsSuccess = await writeStepsData(stepsData)
+        let stepsSuccess = await writeStepsData(stepsData, user: user)
         
         let overallSuccess = sleepSuccess && stepsSuccess
         

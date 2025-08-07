@@ -15,7 +15,10 @@ struct TestDuplicateSleepFix {
             weight: 70,
             sleepBaseline: 8.0,
             stepsBaseline: 8000,
-            createdAt: Date()
+            createdAt: Date(),
+            deviceModel: "iPhone 14 Pro",
+            deviceSerialNumber: "F2LTEST1",
+            deviceUUID: "TEST-UUID-SLEEP-FIX"
         )
         
         // 测试1：生成昨晚的睡眠数据

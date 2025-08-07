@@ -181,11 +181,11 @@ class PersonalizedDataGenerator {
             }
         }
         
-        // 确保在合理范围内
-        return max(3.0, min(14.0, baseDuration))
+        // 确保在合理范围内（减少最大睡眠时长到12小时）
+        return max(3.0, min(12.0, baseDuration))
     }
     
-    // 增强的简单睡眠生成 - 更贴合标签特征
+    // 增强的简单睡眠生成 - 模拟iPhone基于手机使用的睡眠检测
     private static func generateEnhancedSimpleSleep(
         bedtime: Date,
         wakeTime: Date,
@@ -196,289 +196,213 @@ class PersonalizedDataGenerator {
         let calendar = Calendar.current
         var stages: [SleepStage] = []
         
-        // 生成睡前手机使用记录（模拟真实用户行为）
-        let phoneUsageChance = generator.nextFloat(in: 0...1)
-        var actualBedtime = bedtime
+        // 🔥 新方案：模拟iPhone的手机使用检测模式
+        // 1. 睡前手机使用段（多个短暂的活动）
+        var currentTime = bedtime.addingTimeInterval(-3600) // 从睡前1小时开始
         
-        // 根据睡眠类型决定睡前手机使用概率
-        let usageProbability: Float
-        let minUsageCount: Int
-        let maxUsageCount: Int
-        
+        // 根据睡眠类型生成睡前活动模式
         switch sleepType {
         case .nightOwl:
-            usageProbability = 0.7  // 70%概率有睡前手机使用
-            minUsageCount = 1
-            maxUsageCount = 3  // 减少到1-3次
-        case .irregular:
-            usageProbability = 0.6  // 60%概率
-            minUsageCount = 1
-            maxUsageCount = 2  // 减少到1-2次
-        case .normal:
-            usageProbability = 0.5  // 50%概率
-            minUsageCount = 1
-            maxUsageCount = 2  // 减少到1-2次
-        case .earlyBird:
-            usageProbability = 0.3  // 30%概率（早起型通常很快入睡）
-            minUsageCount = 1
-            maxUsageCount = 1  // 最多1次
-        }
-        
-        if phoneUsageChance < usageProbability {
-            // 生成睡前手机使用时段（简化版）
-            let usageCount = generator.nextInt(in: minUsageCount...maxUsageCount)
-            let preSleepTime = bedtime.addingTimeInterval(-1800) // 从睡前30分钟开始
-            
-            for i in 0..<usageCount {
-                // 手机使用时间（1-5分钟）
-                let usageDuration = generator.nextDouble(in: 60...300)
-                let startTime = preSleepTime.addingTimeInterval(Double(i * 600)) // 每10分钟一次
-                let endTime = startTime.addingTimeInterval(usageDuration)
+            // 夜猫子：睡前大量手机使用
+            let activities = generator.nextInt(in: 4...8)
+            for _ in 0..<activities {
+                // 使用手机的时长
+                let durations = [0, 0, 1, 2, 3, 5, 8, 15, 30]
+                let usageDuration = durations[generator.nextInt(in: 0...(durations.count-1))] * 60
+                if usageDuration > 0 {
+                    stages.append(SleepStage(
+                        stage: .awake,
+                        startTime: currentTime,
+                        endTime: currentTime.addingTimeInterval(Double(usageDuration))
+                    ))
+                }
+                // 间隔时间（放下手机）
+                let gap = generator.nextDouble(in: 180...900) // 3-15分钟
+                currentTime = currentTime.addingTimeInterval(Double(usageDuration) + gap)
                 
-                // 确保不超过预定睡觉时间
-                if endTime > bedtime {
+                if currentTime > bedtime {
                     break
                 }
-                
-                // 创建清醒时段
-                let stage = SleepStage(
-                    stage: .awake,
-                    startTime: startTime,
-                    endTime: endTime
-                )
-                stages.append(stage)
             }
             
-            // 实际入睡时间就是计划的入睡时间
-            actualBedtime = bedtime
+        case .earlyBird:
+            // 早起型：睡前少量手机使用
+            let activities = generator.nextInt(in: 1...3)
+            for _ in 0..<activities {
+                let durations = [0, 0, 1, 2, 3]
+                let usageDuration = durations[generator.nextInt(in: 0...(durations.count-1))] * 60
+                if usageDuration > 0 {
+                    stages.append(SleepStage(
+                        stage: .awake,
+                        startTime: currentTime,
+                        endTime: currentTime.addingTimeInterval(Double(usageDuration))
+                    ))
+                }
+                let gap = generator.nextDouble(in: 600...1200) // 10-20分钟
+                currentTime = currentTime.addingTimeInterval(Double(usageDuration) + gap)
+                
+                if currentTime > bedtime {
+                    break
+                }
+            }
+            
+        case .irregular:
+            // 紊乱型：不规律的手机使用
+            let activities = generator.nextInt(in: 2...6)
+            for _ in 0..<activities {
+                let durations = [0, 0, 0, 1, 2, 3, 5, 10, 20]
+                let usageDuration = durations[generator.nextInt(in: 0...(durations.count-1))] * 60
+                if usageDuration > 0 {
+                    stages.append(SleepStage(
+                        stage: .awake,
+                        startTime: currentTime,
+                        endTime: currentTime.addingTimeInterval(Double(usageDuration))
+                    ))
+                }
+                let gap = generator.nextDouble(in: 120...1800) // 2-30分钟
+                currentTime = currentTime.addingTimeInterval(Double(usageDuration) + gap)
+                
+                if currentTime > bedtime {
+                    break
+                }
+            }
+            
+        case .normal:
+            // 正常型：适度的手机使用
+            let activities = generator.nextInt(in: 2...4)
+            for _ in 0..<activities {
+                let durations = [0, 1, 2, 3]
+                let usageDuration = durations[generator.nextInt(in: 0...(durations.count-1))] * 60
+                if usageDuration > 0 {
+                    stages.append(SleepStage(
+                        stage: .awake,
+                        startTime: currentTime,
+                        endTime: currentTime.addingTimeInterval(Double(usageDuration))
+                    ))
+                }
+                let gap = generator.nextDouble(in: 300...900) // 5-15分钟
+                currentTime = currentTime.addingTimeInterval(Double(usageDuration) + gap)
+                
+                if currentTime > bedtime {
+                    break
+                }
+            }
         }
         
-        // 计算实际睡眠时长
+        // 2. 主睡眠段
+        let actualBedtime = bedtime
         let actualSleepDuration = wakeTime.timeIntervalSince(actualBedtime)
         
-        // 只在极端情况下调整睡眠时间
-        // 根据睡眠类型决定最小睡眠时长
-        let minSleepDuration: TimeInterval
+        // 3. 夜间可能的手机查看（根据类型调整）
+        let nightCheckProbability: Float
         switch sleepType {
         case .irregular:
-            minSleepDuration = 3600 * 2.5  // 紊乱型：最少2.5小时
+            nightCheckProbability = 0.6  // 60%概率有夜间查看
         case .nightOwl:
-            minSleepDuration = 3600 * 4    // 夜猫子：最少4小时
-        case .earlyBird:
-            minSleepDuration = 3600 * 5    // 早起型：最少5小时
+            nightCheckProbability = 0.4  // 40%概率
         case .normal:
-            minSleepDuration = 3600 * 4.5  // 正常型：最少4.5小时
+            nightCheckProbability = 0.3  // 30%概率
+        case .earlyBird:
+            nightCheckProbability = 0.1  // 10%概率
         }
         
-        // 只有在睡眠时间极短且不符合类型特征时才调整
-        if actualSleepDuration < minSleepDuration {
-            // 根据睡眠类型决定是否接受极短睡眠
-            let acceptShortSleep = generator.nextFloat(in: 0...1)
-            
-            // 紊乱型有20%概率接受极短睡眠（如失眠夜）
-            if sleepType == .irregular && acceptShortSleep < 0.2 {
-                // 接受这次极短睡眠，继续生成
-            } else {
-                // 其他情况调整起床时间以确保合理睡眠时长
-                let adjustedDuration = max(minSleepDuration / 3600, totalDuration * 0.8)
-                let newWakeTime = actualBedtime.addingTimeInterval(adjustedDuration * 3600)
-                return generateEnhancedSimpleSleep(
-                    bedtime: bedtime,
-                    wakeTime: newWakeTime,
-                    totalDuration: adjustedDuration,
-                    sleepType: sleepType,
-                    generator: &generator
+        if generator.nextFloat(in: 0...1) < nightCheckProbability {
+            // 生成1-2次夜间查看手机
+            let checks = generator.nextInt(in: 1...2)
+            for i in 0..<checks {
+                let checkTime = actualBedtime.addingTimeInterval(
+                    actualSleepDuration * generator.nextDouble(in: 0.2...0.8)
                 )
-            }
-        }
-        
-        // 根据睡眠类型决定分段策略
-        let segmentCount: Int
-        let randomValue = generator.nextFloat(in: 0...1)
-        
-        switch sleepType {
-        case .nightOwl:
-            // 夜猫子：70%一段，20%两段，10%三段
-            if randomValue < 0.7 {
-                segmentCount = 1
-            } else if randomValue < 0.9 {
-                segmentCount = 2
-            } else {
-                segmentCount = 3
-            }
-        case .earlyBird:
-            // 早起者：50%一段，35%两段，15%三段
-            if randomValue < 0.5 {
-                segmentCount = 1
-            } else if randomValue < 0.85 {
-                segmentCount = 2
-            } else {
-                segmentCount = 3
-            }
-        case .irregular:
-            // 紊乱型：20%一段，40%两段，30%三段，10%四段
-            if randomValue < 0.2 {
-                segmentCount = 1
-            } else if randomValue < 0.6 {
-                segmentCount = 2
-            } else if randomValue < 0.9 {
-                segmentCount = 3
-            } else {
-                segmentCount = 4
-            }
-        case .normal:
-            // 正常型：40%一段，40%两段，20%三段
-            if randomValue < 0.4 {
-                segmentCount = 1
-            } else if randomValue < 0.8 {
-                segmentCount = 2
-            } else {
-                segmentCount = 3
-            }
-        }
-        
-        // 生成睡眠段落
-        var currentTime = actualBedtime  // 使用实际入睡时间
-        var allocatedTime: TimeInterval = 0
-        let totalSeconds = actualSleepDuration  // 使用实际睡眠时长
-        
-        for i in 0..<segmentCount {
-            let isLastSegment = i == segmentCount - 1
-            
-            // 计算段落时长
-            let remainingTime = totalSeconds - allocatedTime
-            let segmentRatio = isLastSegment ? 1.0 : generator.nextDouble(in: 0.3...0.7)
-            let segmentDuration = remainingTime * segmentRatio
-            
-            let segmentEnd = currentTime.addingTimeInterval(segmentDuration)
-            
-            stages.append(SleepStage(
-                stage: .light,
-                startTime: currentTime,
-                endTime: min(segmentEnd, wakeTime)
-            ))
-            
-            allocatedTime += segmentDuration
-            
-            // 添加中断（如果不是最后一段）
-            if !isLastSegment {
-                // 生成更真实的中断时长
-                let interruptionType = generator.nextFloat(in: 0...1)
-                let gapDuration: TimeInterval
-                
-                switch sleepType {
-                case .irregular:
-                    // 紊乱型：中断模式多变
-                    if interruptionType < 0.5 {
-                        // 50%: 非常短暂（0-3分钟）
-                        gapDuration = generator.nextDouble(in: 0...180)
-                    } else if interruptionType < 0.75 {
-                        // 25%: 短暂中断（3-8分钟）
-                        gapDuration = generator.nextDouble(in: 180...480)
-                    } else if interruptionType < 0.9 {
-                        // 15%: 中等中断（8-20分钟）
-                        gapDuration = generator.nextDouble(in: 480...1200)
-                    } else {
-                        // 10%: 长时间醒来（20-40分钟）
-                        gapDuration = generator.nextDouble(in: 1200...2400)
-                    }
-                case .nightOwl:
-                    // 夜猫子：中断较少且通常很短
-                    if interruptionType < 0.7 {
-                        // 70%: 非常短暂（0-2分钟）
-                        gapDuration = generator.nextDouble(in: 0...120)
-                    } else if interruptionType < 0.95 {
-                        // 25%: 短暂中断（2-5分钟）
-                        gapDuration = generator.nextDouble(in: 120...300)
-                    } else {
-                        // 5%: 稍长中断（5-10分钟）
-                        gapDuration = generator.nextDouble(in: 300...600)
-                    }
-                case .earlyBird:
-                    // 早起者：规律的短暂中断
-                    if interruptionType < 0.6 {
-                        // 60%: 非常短暂（0-2分钟）
-                        gapDuration = generator.nextDouble(in: 0...120)
-                    } else if interruptionType < 0.9 {
-                        // 30%: 短暂中断（2-5分钟）
-                        gapDuration = generator.nextDouble(in: 120...300)
-                    } else {
-                        // 10%: 稍长中断（5-8分钟）
-                        gapDuration = generator.nextDouble(in: 300...480)
-                    }
-                case .normal:
-                    // 正常型：大多数是短暂中断
-                    if interruptionType < 0.6 {
-                        // 60%: 非常短暂（0-2分钟）
-                        gapDuration = generator.nextDouble(in: 0...120)
-                    } else if interruptionType < 0.85 {
-                        // 25%: 短暂中断（2-5分钟）
-                        gapDuration = generator.nextDouble(in: 120...300)
-                    } else if interruptionType < 0.95 {
-                        // 10%: 中等中断（5-10分钟）
-                        gapDuration = generator.nextDouble(in: 300...600)
-                    } else {
-                        // 5%: 较长中断（10-20分钟）
-                        gapDuration = generator.nextDouble(in: 600...1200)
-                    }
+                let durations = [0, 0, 1, 2, 3]
+                let checkDuration = durations[generator.nextInt(in: 0...(durations.count-1))] * 60
+                if checkDuration > 0 {
+                    stages.append(SleepStage(
+                        stage: .awake,
+                        startTime: checkTime,
+                        endTime: checkTime.addingTimeInterval(Double(checkDuration))
+                    ))
                 }
-                currentTime = segmentEnd.addingTimeInterval(gapDuration)
             }
         }
         
-        // 在睡眠段落中添加额外的短暂醒来（模拟真实的睡眠中断）
-        var finalStages = stages
+        // 4. 早晨起床前后的活动
+        var morningTime = wakeTime.addingTimeInterval(-1800) // 起床前30分钟
         
-        // 根据睡眠类型决定额外醒来的次数（大幅减少）
-        let extraAwakenings: Int
         switch sleepType {
-        case .irregular:
-            extraAwakenings = generator.nextInt(in: 1...2)  // 减少到1-2次
-        case .normal:
-            extraAwakenings = generator.nextInt(in: 0...1)  // 减少到0-1次
-        case .nightOwl:
-            extraAwakenings = generator.nextInt(in: 0...1)  // 减少到0-1次
         case .earlyBird:
-            extraAwakenings = 0  // 早起型睡眠质量好，不额外醒来
-        }
-        
-        // 在睡眠期间随机添加短暂醒来
-        for _ in 0..<extraAwakenings {
-            // 随机选择一个时间点
-            let totalSleepDuration = wakeTime.timeIntervalSince(actualBedtime)
-            let awakeOffset = generator.nextDouble(in: totalSleepDuration * 0.2...totalSleepDuration * 0.8)
-            let awakeTime = actualBedtime.addingTimeInterval(awakeOffset)
-            
-            // 生成醒来时长
-            let awakeDuration: TimeInterval
-            let durationRandom = generator.nextFloat(in: 0...1)
-            if durationRandom < 0.5 {
-                // 50%: 0分钟（瞬间醒来）
-                awakeDuration = 0
-            } else if durationRandom < 0.8 {
-                // 30%: 0-2分钟
-                awakeDuration = generator.nextDouble(in: 0...120)
-            } else if durationRandom < 0.95 {
-                // 15%: 2-5分钟
-                awakeDuration = generator.nextDouble(in: 120...300)
-            } else {
-                // 5%: 5-10分钟
-                awakeDuration = generator.nextDouble(in: 300...600)
+            // 早起型：起床后立即活跃
+            let activities = generator.nextInt(in: 3...6)
+            for _ in 0..<activities {
+                if morningTime > wakeTime.addingTimeInterval(1800) { // 起床后30分钟内
+                    break
+                }
+                let durations = [0, 1, 2, 3, 5, 8]
+                let usageDuration = durations[generator.nextInt(in: 0...(durations.count-1))] * 60
+                if usageDuration > 0 && morningTime >= wakeTime.addingTimeInterval(-600) {
+                    stages.append(SleepStage(
+                        stage: .awake,
+                        startTime: morningTime,
+                        endTime: morningTime.addingTimeInterval(Double(usageDuration))
+                    ))
+                }
+                morningTime = morningTime.addingTimeInterval(Double(usageDuration) + generator.nextDouble(in: 60...300))
             }
             
-            let awakeStage = SleepStage(
-                stage: .awake,
-                startTime: awakeTime,
-                endTime: awakeTime.addingTimeInterval(awakeDuration)
-            )
-            finalStages.append(awakeStage)
+        case .nightOwl:
+            // 夜猫子：起床困难，多次查看手机
+            let activities = generator.nextInt(in: 4...8)
+            for _ in 0..<activities {
+                if morningTime > wakeTime.addingTimeInterval(2400) { // 起床后40分钟内
+                    break
+                }
+                let durations = [0, 0, 1, 2, 3, 5, 10, 15]
+                let usageDuration = durations[generator.nextInt(in: 0...(durations.count-1))] * 60
+                if usageDuration > 0 && morningTime >= wakeTime.addingTimeInterval(-900) {
+                    stages.append(SleepStage(
+                        stage: .awake,
+                        startTime: morningTime,
+                        endTime: morningTime.addingTimeInterval(Double(usageDuration))
+                    ))
+                }
+                morningTime = morningTime.addingTimeInterval(Double(usageDuration) + generator.nextDouble(in: 120...600))
+            }
+            
+        case .irregular, .normal:
+            // 正常或紊乱型：中等程度的早晨活动
+            let activities = generator.nextInt(in: 2...5)
+            for _ in 0..<activities {
+                if morningTime > wakeTime.addingTimeInterval(1200) { // 起床后20分钟内
+                    break
+                }
+                let durations = [0, 1, 2, 3, 5]
+                let usageDuration = durations[generator.nextInt(in: 0...(durations.count-1))] * 60
+                if usageDuration > 0 && morningTime >= wakeTime.addingTimeInterval(-600) {
+                    stages.append(SleepStage(
+                        stage: .awake,
+                        startTime: morningTime,
+                        endTime: morningTime.addingTimeInterval(Double(usageDuration))
+                    ))
+                }
+                morningTime = morningTime.addingTimeInterval(Double(usageDuration) + generator.nextDouble(in: 180...480))
+            }
         }
         
-        // 按时间排序
-        finalStages.sort { $0.startTime < $1.startTime }
+        // 5. 生成主睡眠段（在床时间）
+        // 从最后一次睡前活动到第一次早晨活动
+        let lastBeforebed = stages.filter { $0.endTime <= actualBedtime }.max { $0.endTime < $1.endTime }?.endTime ?? actualBedtime
+        let firstMorning = stages.filter { $0.startTime >= wakeTime.addingTimeInterval(-1800) }.min { $0.startTime < $1.startTime }?.startTime ?? wakeTime
         
-        // 🔥 修复：去重和合并重叠的睡眠段
-        finalStages = removeDuplicateAndMergeOverlappingStages(finalStages)
+        // 添加主睡眠段
+        let mainSleepStage = SleepStage(
+            stage: .light,
+            startTime: lastBeforebed,
+            endTime: firstMorning
+        )
+        stages.append(mainSleepStage)
+        
+        // 6. 排序并合并相邻段
+        stages.sort { $0.startTime < $1.startTime }
+        let finalStages = stages
         
         let baseData = SleepData(
             date: calendar.startOfDay(for: bedtime),  // 使用睡眠开始日期，而非起床日期
@@ -779,54 +703,56 @@ class PersonalizedDataGenerator {
         let sortedStages = stages.sorted { $0.startTime < $1.startTime }
         var mergedStages: [SleepStage] = []
         
-        // 遍历所有段落
+        // 🔥 第一步：合并所有连续的相同类型段落
         for stage in sortedStages {
-            // 如果是第一个段落，直接添加
             if mergedStages.isEmpty {
                 mergedStages.append(stage)
                 continue
             }
             
-            // 获取最后一个已合并的段落
-            let lastStage = mergedStages[mergedStages.count - 1]
+            let lastIndex = mergedStages.count - 1
+            let lastStage = mergedStages[lastIndex]
             
-            // 检查是否有重叠或相邻（1分钟内）
-            if stage.startTime <= lastStage.endTime.addingTimeInterval(60) {
-                // 有重叠或相邻，需要合并
-                // 如果是相同类型的睡眠阶段，合并
+            // 检查是否有重叠
+            if stage.startTime < lastStage.endTime {
+                // 有重叠
                 if stage.stage == lastStage.stage {
-                    // 更新结束时间为两者中较晚的时间
-                    let mergedEndTime = max(lastStage.endTime, stage.endTime)
-                    mergedStages[mergedStages.count - 1] = SleepStage(
+                    // 相同类型，扩展结束时间
+                    mergedStages[lastIndex] = SleepStage(
                         stage: lastStage.stage,
                         startTime: lastStage.startTime,
-                        endTime: mergedEndTime
+                        endTime: max(lastStage.endTime, stage.endTime)
                     )
                 } else {
-                    // 不同类型的睡眠阶段，检查是否完全重复
-                    // 如果新段落完全在上一个段落内，跳过
-                    if stage.endTime <= lastStage.endTime {
-                        continue
+                    // 不同类型
+                    if stage.endTime > lastStage.endTime {
+                        // 如果新段落延伸超过旧段落，调整新段落的开始时间
+                        let adjustedStage = SleepStage(
+                            stage: stage.stage,
+                            startTime: lastStage.endTime,
+                            endTime: stage.endTime
+                        )
+                        if adjustedStage.duration > 60 { // 至少1分钟
+                            mergedStages.append(adjustedStage)
+                        }
                     }
-                    // 否则调整新段落的开始时间，避免重叠
-                    let adjustedStage = SleepStage(
-                        stage: stage.stage,
-                        startTime: lastStage.endTime,
-                        endTime: stage.endTime
-                    )
-                    // 只有当调整后的段落有效时才添加
-                    if adjustedStage.duration > 0 {
-                        mergedStages.append(adjustedStage)
-                    }
+                    // 否则完全被覆盖，跳过
                 }
+            } else if stage.startTime <= lastStage.endTime.addingTimeInterval(300) && stage.stage == lastStage.stage {
+                // 相同类型且间隔小于5分钟，合并
+                mergedStages[lastIndex] = SleepStage(
+                    stage: lastStage.stage,
+                    startTime: lastStage.startTime,
+                    endTime: stage.endTime
+                )
             } else {
-                // 没有重叠，直接添加
+                // 没有重叠且间隔足够，直接添加
                 mergedStages.append(stage)
             }
         }
         
-        // 最后再次过滤，确保没有时长为0的段落
-        return mergedStages.filter { $0.duration > 0 }
+        // 🔥 第二步：确保没有极短的段落
+        return mergedStages.filter { $0.duration >= 60 } // 至少1分钟
     }
     
     // MARK: - 睡眠数据生成

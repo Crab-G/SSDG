@@ -400,11 +400,11 @@ struct GenerateDataOptionsSheet: View {
         
         // 写入HealthKit
         if generateSleep, let sleepData = todayData.sleepData {
-            _ = await HealthKitManager.shared.writeSleepData([sleepData], mode: selectedMode)
+            _ = await HealthKitManager.shared.writeSleepData([sleepData], mode: selectedMode, user: user)
         }
         
         if generateSteps {
-            _ = await HealthKitManager.shared.writeStepsData([todayData.stepsData])
+            _ = await HealthKitManager.shared.writeStepsData([todayData.stepsData], user: user)
         }
         
         // 更新状态

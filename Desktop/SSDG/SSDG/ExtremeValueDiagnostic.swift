@@ -57,7 +57,10 @@ class ExtremeValueDiagnostic {
                 weight: 70,
                 sleepBaseline: testCase.sleepBaseline,
                 stepsBaseline: testCase.stepsBaseline,
-                createdAt: Date()
+                createdAt: Date(),
+                deviceModel: "iPhone 14",
+                deviceSerialNumber: "F2LTEST\(index)",
+                deviceUUID: "TEST-UUID-\(index)"
             )
             
             let profile = PersonalizedProfile.inferFromUser(user)

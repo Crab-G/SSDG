@@ -414,7 +414,10 @@ class SyncStateManager: ObservableObject {
             weight: user.weight,
             sleepBaseline: user.sleepBaseline,
             stepsBaseline: user.stepsBaseline,
-            createdAt: user.createdAt
+            createdAt: user.createdAt,
+            deviceModel: user.deviceModel,
+            deviceSerialNumber: user.deviceSerialNumber,
+            deviceUUID: user.deviceUUID
         )
         
         do {
@@ -436,6 +439,11 @@ class SyncStateManager: ObservableObject {
                 return nil
             }
             
+            // 如果旧数据没有设备信息，生成默认的
+            let deviceModel = codableUser.deviceModel ?? "iPhone 14"
+            let deviceSerialNumber = codableUser.deviceSerialNumber ?? "F2L\(codableUser.id.prefix(5).uppercased())"
+            let deviceUUID = codableUser.deviceUUID ?? UUID().uuidString
+            
             return VirtualUser(
                 id: codableUser.id,
                 age: codableUser.age,
@@ -444,7 +452,10 @@ class SyncStateManager: ObservableObject {
                 weight: codableUser.weight,
                 sleepBaseline: codableUser.sleepBaseline,
                 stepsBaseline: codableUser.stepsBaseline,
-                createdAt: codableUser.createdAt
+                createdAt: codableUser.createdAt,
+                deviceModel: deviceModel,
+                deviceSerialNumber: deviceSerialNumber,
+                deviceUUID: deviceUUID
             )
         } catch {
             print("❌ 用户数据解码失败: \(error.localizedDescription)")
@@ -653,6 +664,11 @@ private struct CodableUser: Codable {
     let sleepBaseline: Double
     let stepsBaseline: Int
     let createdAt: Date
+    
+    // 设备信息（可选，兼容旧版本）
+    let deviceModel: String?
+    let deviceSerialNumber: String?
+    let deviceUUID: String?
 }
 
 private struct CodableHistoricalData: Codable {

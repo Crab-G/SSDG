@@ -596,6 +596,11 @@ struct VirtualUser: Codable {
     let stepsBaseline: Int // 步数
     let createdAt: Date
     
+    // 设备信息（固定绑定）
+    let deviceModel: String       // 如 "iPhone 14 Pro"
+    let deviceSerialNumber: String // 如 "F2LJH7J1"
+    let deviceUUID: String        // 设备UUID
+    
     // 计算BMI
     var bmi: Double {
         let heightInM = height / 100.0
@@ -679,6 +684,9 @@ class VirtualUserGenerator {
         let sleepBaseline = generator.nextDouble(in: 7.0...9.0)
         let stepsBaseline = generator.nextInt(in: 5000...15000)
         
+        // 生成设备信息
+        let deviceInfo = generateDeviceInfo(using: &generator)
+        
         return VirtualUser(
             id: userID,
             age: age,
@@ -687,7 +695,10 @@ class VirtualUserGenerator {
             weight: weight,
             sleepBaseline: sleepBaseline,
             stepsBaseline: stepsBaseline,
-            createdAt: Date()
+            createdAt: Date(),
+            deviceModel: deviceInfo.model,
+            deviceSerialNumber: deviceInfo.serialNumber,
+            deviceUUID: deviceInfo.uuid
         )
     }
     
@@ -746,6 +757,73 @@ class VirtualUserGenerator {
         return max(50.0, min(100.0, weight))
     }
     
+    // 生成设备信息
+    private static func generateDeviceInfo(using generator: inout SeededRandomGenerator) -> (model: String, serialNumber: String, uuid: String) {
+        // iPhone 型号列表（2023-2024年常见型号）
+        let deviceModels = [
+            "iPhone 15 Pro Max",
+            "iPhone 15 Pro", 
+            "iPhone 15 Plus",
+            "iPhone 15",
+            "iPhone 14 Pro Max",
+            "iPhone 14 Pro",
+            "iPhone 14 Plus", 
+            "iPhone 14",
+            "iPhone 13 Pro Max",
+            "iPhone 13 Pro",
+            "iPhone 13",
+            "iPhone 13 mini",
+            "iPhone SE (3rd generation)"
+        ]
+        
+        // 随机选择一个型号
+        let model = deviceModels[generator.nextInt(in: 0...(deviceModels.count - 1))]
+        
+        // 生成序列号（格式：F2LJXXXXX）
+        let serialNumber = generateSerialNumber(using: &generator)
+        
+        // 生成UUID
+        let uuid = generateDeviceUUID(using: &generator)
+        
+        return (model: model, serialNumber: serialNumber, uuid: uuid)
+    }
+    
+    // 生成设备序列号
+    private static func generateSerialNumber(using generator: inout SeededRandomGenerator) -> String {
+        let prefixes = ["F2L", "F4L", "G0N", "G5N", "DX3", "F17", "F93", "DN6"]
+        let prefix = prefixes[generator.nextInt(in: 0...(prefixes.count - 1))]
+        
+        // 生成5个字母数字字符
+        let chars = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789"
+        var suffix = ""
+        for _ in 0..<5 {
+            let index = generator.nextInt(in: 0...(chars.count - 1))
+            suffix.append(chars[chars.index(chars.startIndex, offsetBy: index)])
+        }
+        
+        return prefix + suffix
+    }
+    
+    // 生成设备UUID
+    private static func generateDeviceUUID(using generator: inout SeededRandomGenerator) -> String {
+        // 生成标准格式的UUID: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+        let segments = [8, 4, 4, 4, 12]
+        var uuid = ""
+        
+        for (index, length) in segments.enumerated() {
+            if index > 0 {
+                uuid.append("-")
+            }
+            
+            for _ in 0..<length {
+                let hex = generator.nextInt(in: 0...15)
+                uuid.append(String(format: "%X", hex))
+            }
+        }
+        
+        return uuid
+    }
+    
     // MARK: - 个性化用户生成
     
     // 生成具有指定个性化标签的用户
@@ -766,6 +844,9 @@ class VirtualUserGenerator {
         let sleepBaseline = generatePersonalizedSleepBaseline(for: sleepType, using: &generator)
         let stepsBaseline = generatePersonalizedStepsBaseline(for: activityLevel, using: &generator)
         
+        // 生成设备信息
+        let deviceInfo = generateDeviceInfo(using: &generator)
+        
         let user = VirtualUser(
             id: userID,
             age: age,
@@ -774,7 +855,10 @@ class VirtualUserGenerator {
             weight: weight,
             sleepBaseline: sleepBaseline,
             stepsBaseline: stepsBaseline,
-            createdAt: Date()
+            createdAt: Date(),
+            deviceModel: deviceInfo.model,
+            deviceSerialNumber: deviceInfo.serialNumber,
+            deviceUUID: deviceInfo.uuid
         )
         
         // 设置个性化配置
