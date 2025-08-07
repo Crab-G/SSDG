@@ -34,8 +34,8 @@ class PersonalizedDataGenerator {
             // 紊乱型：完全不规律的作息
             let patterns = [(20.0, 4.0), (23.0, 7.0), (26.0, 10.0), (28.0, 14.0)]
             let selected = patterns[generator.nextInt(in: 0...(patterns.count-1))]
-            baseBedhour = selected.0 + generator.nextFloat(in: -1...1)
-            baseWakehour = selected.1 + generator.nextFloat(in: -1...1)
+            baseBedhour = Float(selected.0) + generator.nextFloat(in: -1...1)
+            baseWakehour = Float(selected.1) + generator.nextFloat(in: -1...1)
         case .normal:
             // 正常型：晚上22:30-23:30睡，早上7-8点醒
             baseBedhour = isWeekend ? 23.5 : 22.5
@@ -199,6 +199,9 @@ class PersonalizedDataGenerator {
         
         // 🔥 新方案：只生成卧床时间段，间隔就是自然的空白
         // 根据睡眠类型生成不同的卧床模式
+        
+        // 计算实际睡眠时长
+        let actualSleepDuration = wakeTime.timeIntervalSince(bedtime)
         
         switch sleepType {
         case .earlyBird:

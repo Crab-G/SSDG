@@ -71,7 +71,7 @@ struct TestPhoneBasedSleep {
             print("  段落总数: \(sleepData.sleepStages.count)")
             
             // 分析段落类型
-            let awakeStages = sleepData.sleepStages.filter { $0.stage == .awake }
+            _ = sleepData.sleepStages.filter { $0.stage == .awake }
             let sleepStages = sleepData.sleepStages.filter { $0.stage != .awake }
             
             print("\n段落分析:")
